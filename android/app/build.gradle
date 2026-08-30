@@ -26,7 +26,10 @@ android {
         versionName "1.0.0"
         
         ndk {
-            abiFilters 'arm64-v8a'
+            // 兼容高端64位设备和低端32位机顶盒
+            // arm64-v8a: 高端64位手机/电视
+            // armeabi-v7a: 低端32位设备、机顶盒
+            abiFilters 'arm64-v8a', 'armeabi-v7a'
         }
     }
 
