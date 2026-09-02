@@ -36,7 +36,7 @@ class MyApp extends StatelessWidget {
       child: MaterialApp(
         title: 'Witv',
         theme: ThemeData.dark(),
-        home: const HomeScreen(),
+        home: HomeScreen(), // 去掉 const
         debugShowCheckedModeBanner: false,
       ),
     );
