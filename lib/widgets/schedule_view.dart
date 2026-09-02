@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:coocaa_flutter_focus/coocaa_flutter_focus.dart'; // 新增
+
 import '../models/channel.dart';
 import '../models/epg_program.dart';
 import '../services/epg_parser.dart';
@@ -48,11 +50,9 @@ class _ScheduleViewState extends State<ScheduleView> {
   VoidCallback? _logoListener;
   bool _isLoading = false;
 
-  // 日期选择
   DateTime? _selectedDate;
   List<DateTime> _availableDates = [];
 
-  // 台标字节
   Uint8List? _logoBytes;
 
   @override
@@ -83,7 +83,6 @@ class _ScheduleViewState extends State<ScheduleView> {
     }
   }
 
-  // 加载台标（使用 LogoService）
   Future<void> _loadLogo() async {
     if (_selectedChannel == null) {
       if (mounted) setState(() => _logoBytes = null);
@@ -98,7 +97,6 @@ class _ScheduleViewState extends State<ScheduleView> {
     }
   }
 
-  // 按东八区日期分组加载
   Future<void> _loadPrograms() async {
     if (_selectedChannel == null) return;
     setState(() => _isLoading = true);
@@ -107,7 +105,6 @@ class _ScheduleViewState extends State<ScheduleView> {
           ? widget.getChannelPrograms!(_selectedChannel!.name)
           : EpgParser.getProgramsByChannelName(_selectedChannel!.name));
 
-      // 按东八区日期分组
       final grouped = <DateTime, List<EpgProgram>>{};
       for (final p in allPrograms) {
         final date = EpgParser.beijingDate(p.start);
@@ -117,7 +114,6 @@ class _ScheduleViewState extends State<ScheduleView> {
       _availableDates = grouped.keys.toList()..sort();
       final today = EpgParser.beijingDate(EpgParser.beijingNow);
 
-      // 默认选中今天，如果没有就选第一天
       if (_selectedDate == null || !_availableDates.contains(_selectedDate)) {
         _selectedDate = _availableDates.contains(today) ? today : (_availableDates.isNotEmpty ? _availableDates.first : null);
       }
@@ -148,57 +144,68 @@ class _ScheduleViewState extends State<ScheduleView> {
 
     return Column(
       children: [
-        // ---------- 顶部日期横排选择器 ----------
+        // ---------- 顶部日期横排选择器（支持焦点） ----------
         if (_availableDates.isNotEmpty)
           Container(
             height: 44,
             color: Colors.black.withOpacity(0.3),
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              itemCount: _availableDates.length,
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              itemBuilder: (context, index) {
-                final date = _availableDates[index];
-                final isSelected = _selectedDate == date;
-                final isToday = date == EpgParser.beijingDate(EpgParser.beijingNow);
+            child: FocusableGroup(
+              focusId: 'schedule_date_row',
+              // 允许水平导航
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                itemCount: _availableDates.length,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                itemBuilder: (context, index) {
+                  final date = _availableDates[index];
+                  final isSelected = _selectedDate == date;
+                  final isToday = date == EpgParser.beijingDate(EpgParser.beijingNow);
 
-                return GestureDetector(
-                  onTap: () {
-                    setState(() {
-                      _selectedDate = date;
-                    });
-                    _loadPrograms();
-                  },
-                  child: Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: isSelected ? Colors.yellow : Colors.white.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(16),
+                  return FocusableWidget(
+                    focusId: 'date_${date.millisecondsSinceEpoch}',
+                    onTap: () {
+                      setState(() {
+                        _selectedDate = date;
+                      });
+                      _loadPrograms();
+                    },
+                    focusDecoration: FocusDecoration(
+                      boxDecoration: BoxDecoration(
+                        color: Colors.blue.withOpacity(0.25),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: Colors.blue, width: 2),
+                      ),
                     ),
-                    child: Center(
-                      child: Text(
-                        isToday ? '今天' : '${date.month}/${date.day}',
-                        style: TextStyle(
-                          color: isSelected ? Colors.black : Colors.white,
-                          fontSize: 13,
-                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                    child: Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: isSelected ? Colors.yellow : Colors.white.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Center(
+                        child: Text(
+                          isToday ? '今天' : '${date.month}/${date.day}',
+                          style: TextStyle(
+                            color: isSelected ? Colors.black : Colors.white,
+                            fontSize: 13,
+                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                );
-              },
+                  );
+                },
+              ),
             ),
           ),
 
-        // ---------- 频道标题（带台标，使用 LogoService） ----------
+        // ---------- 频道标题（带台标） ----------
         if (_selectedChannel != null)
           Container(
             padding: const EdgeInsets.all(12),
             child: Row(
               children: [
-                // 台标（使用 LogoService 加载的本地图片）
                 if (_logoBytes != null)
                   Container(
                     width: 50,
@@ -223,78 +230,90 @@ class _ScheduleViewState extends State<ScheduleView> {
             ),
           ),
 
-        // ---------- 节目列表 ----------
+        // ---------- 节目列表（支持焦点） ----------
         Expanded(
           child: _programs.isEmpty
               ? const Center(
                   child: Text('暂无节目信息', style: TextStyle(color: Colors.white70)),
                 )
-              : ListView.builder(
-                  itemCount: _programs.length,
-                  itemBuilder: (context, index) {
-                    final program = _programs[index];
-                    final now = EpgParser.beijingNow;
-                    final isCurrent = program.start.isBefore(now) && program.stop.isAfter(now);
-                    final isPast = program.stop.isBefore(now);
+              : FocusableGroup(
+                  focusId: 'program_list',
+                  child: ListView.builder(
+                    itemCount: _programs.length,
+                    itemBuilder: (context, index) {
+                      final program = _programs[index];
+                      final now = EpgParser.beijingNow;
+                      final isCurrent = program.start.isBefore(now) && program.stop.isAfter(now);
+                      final isPast = program.stop.isBefore(now);
 
-                    return Container(
-                      color: isCurrent ? Colors.yellow.withOpacity(0.15) : Colors.transparent,
-                      child: ListTile(
-                        dense: true,
-                        leading: Text(
-                          EpgParser.formatBeijingTime(program.start),
-                          style: TextStyle(
-                            color: isCurrent ? Colors.yellow : (isPast ? Colors.white38 : Colors.white70),
-                            fontSize: 13,
-                            fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
-                          ),
-                        ),
-                        title: Text(
-                          program.title,
-                          style: TextStyle(
-                            color: isCurrent ? Colors.yellow : (isPast ? Colors.white38 : Colors.white),
-                            fontSize: 14,
-                            fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
-                          ),
-                        ),
-                        // desc 全部显示（不限制行数）
-                        subtitle: program.description.isNotEmpty
-                            ? Padding(
-                                padding: const EdgeInsets.only(top: 2),
-                                child: Text(
-                                  program.description,
-                                  style: TextStyle(
-                                    color: isCurrent ? Colors.yellow.withOpacity(0.7) : Colors.white54,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              )
-                            : null,
-                        trailing: isCurrent
-                            ? Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: Colors.yellow,
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: const Text(
-                                  '正在播放',
-                                  style: TextStyle(
-                                    color: Colors.black,
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              )
-                            : null,
+                      return FocusableWidget(
+                        focusId: 'program_${program.start.millisecondsSinceEpoch}',
                         onTap: () {
                           if (_selectedChannel != null) {
                             widget.onSelectChannel(_selectedChannel!);
                           }
                         },
-                      ),
-                    );
-                  },
+                        focusDecoration: FocusDecoration(
+                          boxDecoration: BoxDecoration(
+                            color: Colors.green.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                        ),
+                        child: Container(
+                          color: isCurrent ? Colors.yellow.withOpacity(0.15) : Colors.transparent,
+                          child: ListTile(
+                            dense: true,
+                            leading: Text(
+                              EpgParser.formatBeijingTime(program.start),
+                              style: TextStyle(
+                                color: isCurrent ? Colors.yellow : (isPast ? Colors.white38 : Colors.white70),
+                                fontSize: 13,
+                                fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
+                              ),
+                            ),
+                            title: Text(
+                              program.title,
+                              style: TextStyle(
+                                color: isCurrent ? Colors.yellow : (isPast ? Colors.white38 : Colors.white),
+                                fontSize: 14,
+                                fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
+                              ),
+                            ),
+                            subtitle: program.description.isNotEmpty
+                                ? Padding(
+                                    padding: const EdgeInsets.only(top: 2),
+                                    child: Text(
+                                      program.description,
+                                      style: TextStyle(
+                                        color: isCurrent ? Colors.yellow.withOpacity(0.7) : Colors.white54,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  )
+                                : null,
+                            trailing: isCurrent
+                                ? Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: Colors.yellow,
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: const Text(
+                                      '正在播放',
+                                      style: TextStyle(
+                                        color: Colors.black,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  )
+                                : null,
+                            // onTap 由 FocusableWidget 触发
+                          ),
+                        ),
+                      );
+                    },
+                  ),
                 ),
         ),
       ],
