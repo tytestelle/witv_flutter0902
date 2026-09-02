@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:coocaa_flutter_focus/coocaa_flutter_focus.dart'; // 新增
+import 'package:coocaa_flutter_focus/coocaa_flutter_focus.dart';
 
 import '../models/channel.dart';
 import '../models/epg_program.dart';
@@ -144,14 +144,13 @@ class _ScheduleViewState extends State<ScheduleView> {
 
     return Column(
       children: [
-        // ---------- 顶部日期横排选择器（支持焦点） ----------
+        // 日期横排选择器
         if (_availableDates.isNotEmpty)
           Container(
             height: 44,
             color: Colors.black.withOpacity(0.3),
             child: FocusableGroup(
-              focusId: 'schedule_date_row',
-              // 允许水平导航
+              id: 'schedule_date_row',
               child: ListView.builder(
                 scrollDirection: Axis.horizontal,
                 itemCount: _availableDates.length,
@@ -161,21 +160,14 @@ class _ScheduleViewState extends State<ScheduleView> {
                   final isSelected = _selectedDate == date;
                   final isToday = date == EpgParser.beijingDate(EpgParser.beijingNow);
 
-                  return FocusableWidget(
-                    focusId: 'date_${date.millisecondsSinceEpoch}',
+                  return Focusable(
+                    id: 'date_${date.millisecondsSinceEpoch}',
                     onTap: () {
                       setState(() {
                         _selectedDate = date;
                       });
                       _loadPrograms();
                     },
-                    focusDecoration: FocusDecoration(
-                      boxDecoration: BoxDecoration(
-                        color: Colors.blue.withOpacity(0.25),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: Colors.blue, width: 2),
-                      ),
-                    ),
                     child: Container(
                       margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
                       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
@@ -200,7 +192,7 @@ class _ScheduleViewState extends State<ScheduleView> {
             ),
           ),
 
-        // ---------- 频道标题（带台标） ----------
+        // 频道标题
         if (_selectedChannel != null)
           Container(
             padding: const EdgeInsets.all(12),
@@ -230,14 +222,14 @@ class _ScheduleViewState extends State<ScheduleView> {
             ),
           ),
 
-        // ---------- 节目列表（支持焦点） ----------
+        // 节目列表
         Expanded(
           child: _programs.isEmpty
               ? const Center(
                   child: Text('暂无节目信息', style: TextStyle(color: Colors.white70)),
                 )
               : FocusableGroup(
-                  focusId: 'program_list',
+                  id: 'program_list',
                   child: ListView.builder(
                     itemCount: _programs.length,
                     itemBuilder: (context, index) {
@@ -246,19 +238,13 @@ class _ScheduleViewState extends State<ScheduleView> {
                       final isCurrent = program.start.isBefore(now) && program.stop.isAfter(now);
                       final isPast = program.stop.isBefore(now);
 
-                      return FocusableWidget(
-                        focusId: 'program_${program.start.millisecondsSinceEpoch}',
+                      return Focusable(
+                        id: 'program_${program.start.millisecondsSinceEpoch}',
                         onTap: () {
                           if (_selectedChannel != null) {
                             widget.onSelectChannel(_selectedChannel!);
                           }
                         },
-                        focusDecoration: FocusDecoration(
-                          boxDecoration: BoxDecoration(
-                            color: Colors.green.withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                        ),
                         child: Container(
                           color: isCurrent ? Colors.yellow.withOpacity(0.15) : Colors.transparent,
                           child: ListTile(
@@ -308,7 +294,7 @@ class _ScheduleViewState extends State<ScheduleView> {
                                     ),
                                   )
                                 : null,
-                            // onTap 由 FocusableWidget 触发
+                            // onTap 由 Focusable 处理
                           ),
                         ),
                       );
