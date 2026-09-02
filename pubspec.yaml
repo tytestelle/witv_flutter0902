@@ -1,18 +1,14 @@
 name: witv_flutter
 description: 跨平台直播播放器（类酷9）
 version: 1.0.0+1
-
 environment:
   sdk: ">=3.10.0 <4.0.0"
-
 dependencies:
   flutter:
     sdk: flutter
   provider: ^6.1.1
-  
   path_provider: ^2.1.2
   dio: ^5.4.0
-
   xml: ^7.0.1
   json_annotation: ^4.8.1
   shared_preferences: ^2.2.2
@@ -24,7 +20,8 @@ dependencies:
   sqflite: ^2.3.2
   path: ^1.8.3
   collection: ^1.18.0
-  
+  coocaa_flutter_focus: ^0.4.4   # ← 新增
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -36,8 +33,6 @@ flutter:
   assets:
     - assets/configuration.json
     - assets/epg_data.json
- 
-    
 
 flutter_launcher_icons:
   android: true
