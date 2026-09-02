@@ -321,6 +321,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _retryChannel = null;
   }
 
+  // 切换频道：更新 currentChannel 并同步 _selectedIndex
   void _switchChannel(Channel ch) {
     _cancelRetry();
     _digitBuffer = '';
@@ -336,6 +337,7 @@ class _HomeScreenState extends State<HomeScreen> {
     Provider.of<SettingsService>(context, listen: false).saveLastChannel(ch.name);
   }
 
+  // 切换分组：更新 channels 列表，并调整 _selectedIndex
   void _switchToGroup(String groupName) {
     if (_fullGroupMap == null || _fullGroupMap!.isEmpty) return;
     final groupChannels = _fullGroupMap![groupName];
@@ -347,9 +349,17 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       currentGroup = groupName;
       channels = groupChannels;
+      // 如果当前频道在新分组中，则选中它，否则选中第一个
       if (currentChannel != null && channels.contains(currentChannel)) {
         _selectedIndex = channels.indexOf(currentChannel!);
+      } else if (channels.isNotEmpty) {
+        // 如果当前频道不在新分组，自动选中第一个频道
+        currentChannel = channels.first;
+        _selectedIndex = 0;
+        _updateEpgInfo();
+        _showEpgInfoTemporarily();
       } else {
+        currentChannel = null;
         _selectedIndex = -1;
       }
     });
@@ -470,7 +480,15 @@ class _HomeScreenState extends State<HomeScreen> {
           } else if (currentChannel != null && channels.contains(currentChannel)) {
             _selectedIndex = channels.indexOf(currentChannel!);
           } else {
-            _selectedIndex = -1;
+            // 当前频道不在该分组，选择第一个
+            if (channels.isNotEmpty) {
+              currentChannel = channels.first;
+              _selectedIndex = 0;
+              _updateEpgInfo();
+            } else {
+              currentChannel = null;
+              _selectedIndex = -1;
+            }
           }
         } else {
           for (final g in groups) {
@@ -492,6 +510,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _tryDownloadLogos();
   }
 
+  // 遥控器按键处理（核心逻辑）
   void _handleKeyEvent(RawKeyEvent event) {
     if (event is! RawKeyDownEvent) return;
     if (!showChannelList || isEditMode || isScheduleMode) return;
@@ -522,10 +541,21 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (channels.isEmpty) return;
 
+    // 上下键：移动高亮，但不换台（边界停止，不循环）
     if (key == LogicalKeyboardKey.arrowUp) {
-      setState(() => _selectedIndex = _selectedIndex > 0 ? _selectedIndex - 1 : channels.length - 1);
+      if (_selectedIndex > 0) {
+        setState(() => _selectedIndex--);
+      }
+      // 如果 _selectedIndex == -1，则设为0（如果有频道）
+      if (_selectedIndex == -1 && channels.isNotEmpty) {
+        setState(() => _selectedIndex = 0);
+      }
     } else if (key == LogicalKeyboardKey.arrowDown) {
-      setState(() => _selectedIndex = _selectedIndex < channels.length - 1 ? _selectedIndex + 1 : 0);
+      if (_selectedIndex < channels.length - 1) {
+        setState(() => _selectedIndex++);
+      } else if (_selectedIndex == -1 && channels.isNotEmpty) {
+        setState(() => _selectedIndex = 0);
+      }
     } else if (key == LogicalKeyboardKey.arrowLeft) {
       if (groups.isNotEmpty) {
         final currentIdx = groups.indexOf(currentGroup!);
@@ -710,7 +740,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildChannelItem(Channel channel, int index) {
     final currentEpg = EpgParser.getCurrentProgramSync(channel.name);
-    final isSelected = currentChannel?.name == channel.name;
+    final isSelected = (currentChannel?.name == channel.name) || (index == _selectedIndex && currentChannel != null && currentChannel!.name == channel.name);
 
     return ListTile(
       dense: true,
@@ -754,6 +784,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _scheduleButtonInitTop = (screenHeight - 80) / 2;
     _channelButtonInitTop = (screenHeight - 80) / 2;
 
+    // 同步 _selectedIndex 与 currentChannel（以防外部修改）
     if (currentChannel != null && channels.isNotEmpty) {
       final idx = channels.indexOf(currentChannel!);
       if (idx != _selectedIndex && idx >= 0) {
