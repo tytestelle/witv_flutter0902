@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:coocaa_flutter_focus/coocaa_flutter_focus.dart';
-
 import '../services/settings_service.dart';
 import '../services/log_service.dart';
 import '../services/config_service.dart';
@@ -25,11 +24,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _isLoadingToken = true;
   bool _isSavingEpg = false;
 
+  final FocusNode _focusNode = FocusNode();
+  final ScrollController _scrollController = ScrollController();
+
   @override
   void initState() {
     super.initState();
     _loadToken();
     _loadCurrentEpgUrl();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _focusNode.requestFocus();
+    });
   }
 
   Future<void> _loadCurrentEpgUrl() async {
@@ -55,6 +60,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _urlController.dispose();
     _tokenController.dispose();
     _epgUrlController.dispose();
+    _focusNode.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -89,28 +96,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final settings = Provider.of<SettingsService>(context);
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('设置'),
-        actions: [
-          Focusable(
-            id: 'refresh_button',
-            onTap: () {
-              settings.markNeedsRefresh();
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('已标记刷新，返回后自动更新')),
-              );
-            },
-            child: IconButton(
+    return RawKeyboardListener(
+      focusNode: _focusNode,
+      onKey: (event) {
+        if (event is RawKeyDownEvent) {
+          if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+            _scrollListView(50.0);
+          } else if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+            _scrollListView(-50.0);
+          }
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text('设置'),
+          actions: [
+            IconButton(
               icon: Icon(Icons.refresh),
-              onPressed: () {}, // onPressed 由 Focusable 的 onTap 处理
+              onPressed: () {
+                settings.markNeedsRefresh();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('已标记刷新，返回后自动更新')),
+                );
+              },
             ),
-          ),
-        ],
-      ),
-      body: FocusableGroup(
-        id: 'settings_list',
-        child: ListView(
+          ],
+        ),
+        body: ListView(
+          controller: _scrollController,
           children: [
             // ---------- 订阅源管理 ----------
             Card(
@@ -122,84 +135,56 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   children: [
                     Text('订阅源管理', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                     SizedBox(height: 8),
-                    // 添加订阅行（水平组，但库不支持 axis，我们仍用 FocusableGroup 包裹，默认垂直）
-                    FocusableGroup(
-                      id: 'add_sub_row',
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Focusable(
-                              id: 'sub_name_field',
-                              onTap: () {
-                                // 点击输入框时请求焦点（实际焦点由 TextField 自身处理）
-                                // 这里不做特殊处理，仅让外部高亮
-                              },
-                              child: TextField(
-                                controller: _nameController,
-                                decoration: InputDecoration(
-                                  labelText: '名称',
-                                  border: OutlineInputBorder(),
-                                  isDense: true,
-                                ),
-                              ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _nameController,
+                            decoration: InputDecoration(
+                              labelText: '名称',
+                              border: OutlineInputBorder(),
+                              isDense: true,
                             ),
                           ),
-                          SizedBox(width: 8),
-                          Expanded(
-                            child: Focusable(
-                              id: 'sub_url_field',
-                              onTap: () {},
-                              child: TextField(
-                                controller: _urlController,
-                                decoration: InputDecoration(
-                                  labelText: 'URL',
-                                  border: OutlineInputBorder(),
-                                  isDense: true,
-                                ),
-                              ),
+                        ),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: TextField(
+                            controller: _urlController,
+                            decoration: InputDecoration(
+                              labelText: 'URL',
+                              border: OutlineInputBorder(),
+                              isDense: true,
                             ),
                           ),
-                          SizedBox(width: 8),
-                          Focusable(
-                            id: 'add_sub_button',
-                            onTap: _isAdding ? null : _addSubscription,
-                            child: ElevatedButton(
-                              onPressed: null,
-                              child: _isAdding
-                                  ? SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                                  : Text('添加'),
-                            ),
-                          ),
-                        ],
-                      ),
+                        ),
+                        SizedBox(width: 8),
+                        ElevatedButton(
+                          onPressed: _isAdding ? null : _addSubscription,
+                          child: _isAdding ? SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : Text('添加'),
+                        ),
+                      ],
                     ),
                     SizedBox(height: 12),
-                    // 订阅列表
-                    ...settings.subscriptions.map((sub) {
-                      return Focusable(
-                        id: 'sub_${sub.name}',
-                        onTap: () {
+                    ...settings.subscriptions.map((sub) => ListTile(
+                      leading: Checkbox(
+                        value: sub.selected,
+                        onChanged: (_) {
                           settings.toggleSelected(sub);
                         },
-                        child: ListTile(
-                          leading: Checkbox(
-                            value: sub.selected,
-                            onChanged: (_) {
-                              settings.toggleSelected(sub);
-                            },
-                          ),
-                          title: Text(sub.name),
-                          subtitle: Text(sub.url, maxLines: 1, overflow: TextOverflow.ellipsis),
-                          trailing: IconButton(
-                            icon: Icon(Icons.delete, color: Colors.red),
-                            onPressed: () {
-                              _confirmDelete(sub);
-                            },
-                          ),
-                          // onTap 由 Focusable 处理
-                        ),
-                      );
-                    }).toList(),
+                      ),
+                      title: Text(sub.name),
+                      subtitle: Text(sub.url, maxLines: 1, overflow: TextOverflow.ellipsis),
+                      trailing: IconButton(
+                        icon: Icon(Icons.delete, color: Colors.red),
+                        onPressed: () {
+                          _confirmDelete(sub);
+                        },
+                      ),
+                      onTap: () {
+                        settings.toggleSelected(sub);
+                      },
+                    )).toList(),
                     if (settings.subscriptions.isEmpty)
                       Padding(
                         padding: EdgeInsets.symmetric(vertical: 16),
@@ -220,38 +205,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   children: [
                     Text('EPG 订阅管理', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                     SizedBox(height: 8),
-                    FocusableGroup(
-                      id: 'epg_row',
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Focusable(
-                              id: 'epg_url_field',
-                              onTap: () {},
-                              child: TextField(
-                                controller: _epgUrlController,
-                                decoration: InputDecoration(
-                                  labelText: 'EPG URL',
-                                  hintText: '输入 EPG XML 地址',
-                                  border: OutlineInputBorder(),
-                                  isDense: true,
-                                ),
-                              ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _epgUrlController,
+                            decoration: InputDecoration(
+                              labelText: 'EPG URL',
+                              hintText: '输入 EPG XML 地址',
+                              border: OutlineInputBorder(),
+                              isDense: true,
                             ),
                           ),
-                          SizedBox(width: 8),
-                          Focusable(
-                            id: 'save_epg_button',
-                            onTap: _isSavingEpg ? null : _saveEpgUrl,
-                            child: ElevatedButton(
-                              onPressed: null,
-                              child: _isSavingEpg
-                                  ? SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                                  : Text('保存'),
-                            ),
-                          ),
-                        ],
-                      ),
+                        ),
+                        SizedBox(width: 8),
+                        ElevatedButton(
+                          onPressed: _isSavingEpg ? null : _saveEpgUrl,
+                          child: _isSavingEpg
+                              ? SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                              : Text('保存'),
+                        ),
+                      ],
                     ),
                     SizedBox(height: 8),
                     FutureBuilder<String?>(
@@ -279,39 +253,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   children: [
                     Text('GitHub 私有仓库令牌', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                     SizedBox(height: 8),
-                    FocusableGroup(
-                      id: 'token_row',
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Focusable(
-                              id: 'token_field',
-                              onTap: () {},
-                              child: TextField(
-                                controller: _tokenController,
-                                obscureText: true,
-                                decoration: InputDecoration(
-                                  labelText: 'Personal Access Token',
-                                  hintText: '输入您的 GitHub 令牌',
-                                  border: OutlineInputBorder(),
-                                  isDense: true,
-                                ),
-                              ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _tokenController,
+                            obscureText: true,
+                            decoration: InputDecoration(
+                              labelText: 'Personal Access Token',
+                              hintText: '输入您的 GitHub 令牌',
+                              border: OutlineInputBorder(),
+                              isDense: true,
                             ),
                           ),
-                          SizedBox(width: 8),
-                          Focusable(
-                            id: 'save_token_button',
-                            onTap: _isLoadingToken ? null : _saveToken,
-                            child: ElevatedButton(
-                              onPressed: null,
-                              child: _isLoadingToken
-                                  ? SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                                  : Text('保存'),
-                            ),
-                          ),
-                        ],
-                      ),
+                        ),
+                        SizedBox(width: 8),
+                        ElevatedButton(
+                          onPressed: _isLoadingToken ? null : _saveToken,
+                          child: _isLoadingToken ? SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : Text('保存'),
+                        ),
+                      ],
                     ),
                     SizedBox(height: 4),
                     Text('令牌仅保存在本地，用于访问私有仓库的配置、EPG 和台标资源。',
@@ -331,24 +292,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   children: [
                     Text('台标来源', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                     SizedBox(height: 8),
-                    Focusable(
-                      id: 'logo_source',
+                    ListTile(
+                      leading: Icon(Icons.image),
+                      title: Text('选择台标来源'),
+                      subtitle: Text('M3U订阅源 / GitHub仓库 / EPG文件'),
+                      trailing: Icon(Icons.chevron_right),
                       onTap: () => LogoSourceSettingDialog.show(context),
-                      child: ListTile(
-                        leading: Icon(Icons.image),
-                        title: Text('选择台标来源'),
-                        subtitle: Text('M3U订阅源 / GitHub仓库 / EPG文件'),
-                        trailing: Icon(Icons.chevron_right),
-                      ),
                     ),
-                    Focusable(
-                      id: 'clear_logo_cache',
+                    ListTile(
+                      leading: Icon(Icons.delete_forever, color: Colors.red),
+                      title: Text('清除台标缓存', style: TextStyle(color: Colors.red)),
+                      subtitle: Text('删除 logo 文件夹中的所有台标'),
                       onTap: () => _confirmClearLogoCache(),
-                      child: ListTile(
-                        leading: Icon(Icons.delete_forever, color: Colors.red),
-                        title: Text('清除台标缓存', style: TextStyle(color: Colors.red)),
-                        subtitle: Text('删除 logo 文件夹中的所有台标'),
-                      ),
                     ),
                     SizedBox(height: 4),
                     Text('GitHub 来源直接保存；M3U / EPG 来源自动去除白底后保存。',
@@ -367,22 +322,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text('解码器', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                    Focusable(
-                      id: 'decoder_dropdown',
-                      onTap: () {
-                        // DropdownButton 需要点击展开，此处不处理
+                    DropdownButton<int>(
+                      value: settings.decoderIndex,
+                      items: [
+                        DropdownMenuItem(value: 0, child: Text('硬件解码 (画质优先，推荐)')),
+                        DropdownMenuItem(value: 1, child: Text('软件解码 (兼容优先)')),
+                      ],
+                      onChanged: (value) {
+                        if (value != null) settings.setDecoderIndex(value);
                       },
-                      child: DropdownButton<int>(
-                        value: settings.decoderIndex,
-                        items: [
-                          DropdownMenuItem(value: 0, child: Text('硬件解码 (画质优先，推荐)')),
-                          DropdownMenuItem(value: 1, child: Text('软件解码 (兼容优先)')),
-                        ],
-                        onChanged: (value) {
-                          if (value != null) settings.setDecoderIndex(value);
-                        },
-                        isExpanded: true,
-                      ),
+                      isExpanded: true,
                     ),
                     SizedBox(height: 8),
                     Text(
@@ -409,15 +358,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   children: [
                     Text('断线自动重连', style: TextStyle(fontSize: 18)),
                     Spacer(),
-                    Focusable(
-                      id: 'auto_reconnect_switch',
-                      onTap: () {
-                        settings.setAutoReconnect(!settings.autoReconnect);
+                    Switch(
+                      value: settings.autoReconnect,
+                      onChanged: (value) {
+                        settings.setAutoReconnect(value);
                       },
-                      child: Switch(
-                        value: settings.autoReconnect,
-                        onChanged: null, // 由 Focusable 的 onTap 控制
-                      ),
                     ),
                   ],
                 ),
@@ -434,36 +379,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   children: [
                     Text('日志', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                     SizedBox(height: 8),
-                    FocusableGroup(
-                      id: 'log_buttons',
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Focusable(
-                              id: 'export_log',
-                              onTap: _exportLog,
-                              child: ElevatedButton.icon(
-                                icon: Icon(Icons.file_download),
-                                label: Text('导出日志'),
-                                onPressed: null,
-                              ),
-                            ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            icon: Icon(Icons.file_download),
+                            label: Text('导出日志'),
+                            onPressed: _exportLog,
                           ),
-                          SizedBox(width: 8),
-                          Expanded(
-                            child: Focusable(
-                              id: 'clear_log',
-                              onTap: _clearLogs,
-                              child: ElevatedButton.icon(
-                                icon: Icon(Icons.delete_forever),
-                                label: Text('清空日志'),
-                                onPressed: null,
-                                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                              ),
-                            ),
+                        ),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            icon: Icon(Icons.delete_forever),
+                            label: Text('清空日志'),
+                            onPressed: _clearLogs,
+                            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -480,14 +414,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   children: [
                     Text('关于', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                     SizedBox(height: 8),
-                    Focusable(
-                      id: 'about',
-                      onTap: () {},
-                      child: ListTile(
-                        leading: Icon(Icons.info),
-                        title: Text('Witv 播放器'),
-                        subtitle: Text('版本 1.0.0\n基于 Flutter 构建'),
-                      ),
+                    ListTile(
+                      leading: Icon(Icons.info),
+                      title: Text('Witv 播放器'),
+                      subtitle: Text('版本 1.0.0\n基于 Flutter 构建'),
                     ),
                   ],
                 ),
@@ -496,6 +426,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  void _scrollListView(double delta) {
+    final current = _scrollController.position.pixels;
+    final target = (current + delta).clamp(0.0, _scrollController.position.maxScrollExtent);
+    _scrollController.animateTo(
+      target,
+      duration: Duration(milliseconds: 100),
+      curve: Curves.easeOut,
     );
   }
 
@@ -645,7 +585,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  // ---------- 对话框（保留原样，内部按钮未焦点化，但可正常工作） ----------
   Future<T?> _showTransparentDialog<T>({
     required BuildContext context,
     required String title,
