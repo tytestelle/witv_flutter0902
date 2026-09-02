@@ -1,22 +1,28 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-// 移除 media_kit 导入
+import 'package:coocaa_flutter_focus/coocaa_flutter_focus.dart'; // ← 新增
 import 'screens/home_screen.dart';
 import 'services/settings_service.dart';
 import 'services/log_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await LogService.init();
 
-  // 强制横屏
+  // 初始化焦点控制器
+  FocusController.instance
+    ..init()
+    ..updateConfig(
+      scrollEdgeOffset: 80,
+      focusableGroupEdgeMode: FocusableGroupEdgeMode.stop, // 边缘停止，不循环
+    );
+
+  await LogService.init();
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.landscapeLeft,
     DeviceOrientation.landscapeRight,
   ]);
 
-  // 捕获错误
   FlutterError.onError = (FlutterErrorDetails details) {
     FlutterError.dumpErrorToConsole(details);
     LogService.writeCrashLog(details.exception, details.stack);
@@ -26,10 +32,12 @@ void main() async {
     return true;
   };
 
-  runApp(MyApp());
+  runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
@@ -37,7 +45,7 @@ class MyApp extends StatelessWidget {
       child: MaterialApp(
         title: 'Witv',
         theme: ThemeData.dark(),
-        home: HomeScreen(),
+        home: const HomeScreen(),
         debugShowCheckedModeBanner: false,
       ),
     );
