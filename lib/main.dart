@@ -1,21 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:coocaa_flutter_focus/coocaa_flutter_focus.dart'; // ← 新增
 import 'screens/home_screen.dart';
 import 'services/settings_service.dart';
 import 'services/log_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // 初始化焦点控制器
-  FocusController.instance
-    ..init()
-    ..updateConfig(
-      scrollEdgeOffset: 80,
-      focusableGroupEdgeMode: FocusableGroupEdgeMode.stop, // 边缘停止，不循环
-    );
 
   await LogService.init();
   await SystemChrome.setPreferredOrientations([
