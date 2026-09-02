@@ -93,24 +93,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
       appBar: AppBar(
         title: Text('设置'),
         actions: [
-          FocusableWidget(
-            focusId: 'refresh_button',
-            focusDecoration: _focusDecoration(),
+          Focusable(
+            id: 'refresh_button',
+            onTap: () {
+              settings.markNeedsRefresh();
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('已标记刷新，返回后自动更新')),
+              );
+            },
             child: IconButton(
               icon: Icon(Icons.refresh),
-              onPressed: () {
-                settings.markNeedsRefresh();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('已标记刷新，返回后自动更新')),
-                );
-              },
+              onPressed: () {}, // onPressed 由 Focusable 的 onTap 处理
             ),
           ),
         ],
       ),
       body: FocusableGroup(
-        focusId: 'settings_list',
-        // 垂直方向，上下键导航
+        id: 'settings_list',
         child: ListView(
           children: [
             // ---------- 订阅源管理 ----------
@@ -123,16 +122,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   children: [
                     Text('订阅源管理', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                     SizedBox(height: 8),
-                    // 添加订阅行（水平焦点组）
+                    // 添加订阅行（水平组，但库不支持 axis，我们仍用 FocusableGroup 包裹，默认垂直）
                     FocusableGroup(
-                      focusId: 'add_sub_row',
-                      axis: Axis.horizontal,
+                      id: 'add_sub_row',
                       child: Row(
                         children: [
                           Expanded(
-                            child: FocusableWidget(
-                              focusId: 'sub_name_field',
-                              focusDecoration: _focusDecoration(),
+                            child: Focusable(
+                              id: 'sub_name_field',
+                              onTap: () {
+                                // 点击输入框时请求焦点（实际焦点由 TextField 自身处理）
+                                // 这里不做特殊处理，仅让外部高亮
+                              },
                               child: TextField(
                                 controller: _nameController,
                                 decoration: InputDecoration(
@@ -145,9 +146,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ),
                           SizedBox(width: 8),
                           Expanded(
-                            child: FocusableWidget(
-                              focusId: 'sub_url_field',
-                              focusDecoration: _focusDecoration(),
+                            child: Focusable(
+                              id: 'sub_url_field',
+                              onTap: () {},
                               child: TextField(
                                 controller: _urlController,
                                 decoration: InputDecoration(
@@ -159,11 +160,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             ),
                           ),
                           SizedBox(width: 8),
-                          FocusableWidget(
-                            focusId: 'add_sub_button',
-                            focusDecoration: _focusDecoration(),
+                          Focusable(
+                            id: 'add_sub_button',
+                            onTap: _isAdding ? null : _addSubscription,
                             child: ElevatedButton(
-                              onPressed: _isAdding ? null : _addSubscription,
+                              onPressed: null,
                               child: _isAdding
                                   ? SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
                                   : Text('添加'),
@@ -175,9 +176,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     SizedBox(height: 12),
                     // 订阅列表
                     ...settings.subscriptions.map((sub) {
-                      return FocusableWidget(
-                        focusId: 'sub_${sub.name}',
-                        focusDecoration: _focusDecoration(),
+                      return Focusable(
+                        id: 'sub_${sub.name}',
+                        onTap: () {
+                          settings.toggleSelected(sub);
+                        },
                         child: ListTile(
                           leading: Checkbox(
                             value: sub.selected,
@@ -193,10 +196,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               _confirmDelete(sub);
                             },
                           ),
-                          onTap: () {
-                            // 点击整个 ListTile 可切换选中状态
-                            settings.toggleSelected(sub);
-                          },
+                          // onTap 由 Focusable 处理
                         ),
                       );
                     }).toList(),
@@ -221,14 +221,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     Text('EPG 订阅管理', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                     SizedBox(height: 8),
                     FocusableGroup(
-                      focusId: 'epg_row',
-                      axis: Axis.horizontal,
+                      id: 'epg_row',
                       child: Row(
                         children: [
                           Expanded(
-                            child: FocusableWidget(
-                              focusId: 'epg_url_field',
-                              focusDecoration: _focusDecoration(),
+                            child: Focusable(
+                              id: 'epg_url_field',
+                              onTap: () {},
                               child: TextField(
                                 controller: _epgUrlController,
                                 decoration: InputDecoration(
@@ -241,11 +240,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             ),
                           ),
                           SizedBox(width: 8),
-                          FocusableWidget(
-                            focusId: 'save_epg_button',
-                            focusDecoration: _focusDecoration(),
+                          Focusable(
+                            id: 'save_epg_button',
+                            onTap: _isSavingEpg ? null : _saveEpgUrl,
                             child: ElevatedButton(
-                              onPressed: _isSavingEpg ? null : _saveEpgUrl,
+                              onPressed: null,
                               child: _isSavingEpg
                                   ? SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
                                   : Text('保存'),
@@ -281,14 +280,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     Text('GitHub 私有仓库令牌', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                     SizedBox(height: 8),
                     FocusableGroup(
-                      focusId: 'token_row',
-                      axis: Axis.horizontal,
+                      id: 'token_row',
                       child: Row(
                         children: [
                           Expanded(
-                            child: FocusableWidget(
-                              focusId: 'token_field',
-                              focusDecoration: _focusDecoration(),
+                            child: Focusable(
+                              id: 'token_field',
+                              onTap: () {},
                               child: TextField(
                                 controller: _tokenController,
                                 obscureText: true,
@@ -302,11 +300,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             ),
                           ),
                           SizedBox(width: 8),
-                          FocusableWidget(
-                            focusId: 'save_token_button',
-                            focusDecoration: _focusDecoration(),
+                          Focusable(
+                            id: 'save_token_button',
+                            onTap: _isLoadingToken ? null : _saveToken,
                             child: ElevatedButton(
-                              onPressed: _isLoadingToken ? null : _saveToken,
+                              onPressed: null,
                               child: _isLoadingToken
                                   ? SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
                                   : Text('保存'),
@@ -333,25 +331,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   children: [
                     Text('台标来源', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                     SizedBox(height: 8),
-                    FocusableWidget(
-                      focusId: 'logo_source',
-                      focusDecoration: _focusDecoration(),
+                    Focusable(
+                      id: 'logo_source',
+                      onTap: () => LogoSourceSettingDialog.show(context),
                       child: ListTile(
                         leading: Icon(Icons.image),
                         title: Text('选择台标来源'),
                         subtitle: Text('M3U订阅源 / GitHub仓库 / EPG文件'),
                         trailing: Icon(Icons.chevron_right),
-                        onTap: () => LogoSourceSettingDialog.show(context),
                       ),
                     ),
-                    FocusableWidget(
-                      focusId: 'clear_logo_cache',
-                      focusDecoration: _focusDecoration(),
+                    Focusable(
+                      id: 'clear_logo_cache',
+                      onTap: () => _confirmClearLogoCache(),
                       child: ListTile(
                         leading: Icon(Icons.delete_forever, color: Colors.red),
                         title: Text('清除台标缓存', style: TextStyle(color: Colors.red)),
                         subtitle: Text('删除 logo 文件夹中的所有台标'),
-                        onTap: () => _confirmClearLogoCache(),
                       ),
                     ),
                     SizedBox(height: 4),
@@ -371,9 +367,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text('解码器', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                    FocusableWidget(
-                      focusId: 'decoder_dropdown',
-                      focusDecoration: _focusDecoration(),
+                    Focusable(
+                      id: 'decoder_dropdown',
+                      onTap: () {
+                        // DropdownButton 需要点击展开，此处不处理
+                      },
                       child: DropdownButton<int>(
                         value: settings.decoderIndex,
                         items: [
@@ -411,14 +409,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   children: [
                     Text('断线自动重连', style: TextStyle(fontSize: 18)),
                     Spacer(),
-                    FocusableWidget(
-                      focusId: 'auto_reconnect_switch',
-                      focusDecoration: _focusDecoration(),
+                    Focusable(
+                      id: 'auto_reconnect_switch',
+                      onTap: () {
+                        settings.setAutoReconnect(!settings.autoReconnect);
+                      },
                       child: Switch(
                         value: settings.autoReconnect,
-                        onChanged: (value) {
-                          settings.setAutoReconnect(value);
-                        },
+                        onChanged: null, // 由 Focusable 的 onTap 控制
                       ),
                     ),
                   ],
@@ -437,30 +435,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     Text('日志', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                     SizedBox(height: 8),
                     FocusableGroup(
-                      focusId: 'log_buttons',
-                      axis: Axis.horizontal,
+                      id: 'log_buttons',
                       child: Row(
                         children: [
                           Expanded(
-                            child: FocusableWidget(
-                              focusId: 'export_log',
-                              focusDecoration: _focusDecoration(),
+                            child: Focusable(
+                              id: 'export_log',
+                              onTap: _exportLog,
                               child: ElevatedButton.icon(
                                 icon: Icon(Icons.file_download),
                                 label: Text('导出日志'),
-                                onPressed: _exportLog,
+                                onPressed: null,
                               ),
                             ),
                           ),
                           SizedBox(width: 8),
                           Expanded(
-                            child: FocusableWidget(
-                              focusId: 'clear_log',
-                              focusDecoration: _focusDecoration(),
+                            child: Focusable(
+                              id: 'clear_log',
+                              onTap: _clearLogs,
                               child: ElevatedButton.icon(
                                 icon: Icon(Icons.delete_forever),
                                 label: Text('清空日志'),
-                                onPressed: _clearLogs,
+                                onPressed: null,
                                 style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
                               ),
                             ),
@@ -483,9 +480,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   children: [
                     Text('关于', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                     SizedBox(height: 8),
-                    FocusableWidget(
-                      focusId: 'about',
-                      focusDecoration: _focusDecoration(),
+                    Focusable(
+                      id: 'about',
+                      onTap: () {},
                       child: ListTile(
                         leading: Icon(Icons.info),
                         title: Text('Witv 播放器'),
@@ -502,18 +499,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  // ---------- 焦点高亮样式（统一） ----------
-  FocusDecoration _focusDecoration() {
-    return FocusDecoration(
-      boxDecoration: BoxDecoration(
-        color: Colors.blue.withOpacity(0.2),
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: Colors.blue, width: 2),
-      ),
-    );
-  }
-
-  // ---------- 业务方法（保留原样） ----------
+  // ---------- 业务方法（原样保留） ----------
   Future<void> _addSubscription() async {
     final name = _nameController.text.trim();
     final url = _urlController.text.trim();
@@ -659,7 +645,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  // ---------- 自定义对话框（未深度改造，但按钮已支持焦点） ----------
+  // ---------- 对话框（保留原样，内部按钮未焦点化，但可正常工作） ----------
   Future<T?> _showTransparentDialog<T>({
     required BuildContext context,
     required String title,
@@ -709,25 +695,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.end,
                       children: [
-                        FocusableWidget(
-                          focusId: 'dialog_cancel',
-                          focusDecoration: _focusDecoration(),
-                          child: TextButton(
-                            onPressed: () => Navigator.pop(context, false),
-                            child: Text(cancelText, style: const TextStyle(color: Colors.white70)),
-                          ),
+                        TextButton(
+                          onPressed: () => Navigator.pop(context, false),
+                          child: Text(cancelText, style: const TextStyle(color: Colors.white70)),
                         ),
                         const SizedBox(width: 8),
-                        FocusableWidget(
-                          focusId: 'dialog_confirm',
-                          focusDecoration: _focusDecoration(),
-                          child: ElevatedButton(
-                            onPressed: () => Navigator.pop(context, true),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: confirmColor,
-                            ),
-                            child: Text(confirmText),
+                        ElevatedButton(
+                          onPressed: () => Navigator.pop(context, true),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: confirmColor,
                           ),
+                          child: Text(confirmText),
                         ),
                       ],
                     ),
