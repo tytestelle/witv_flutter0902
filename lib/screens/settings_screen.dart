@@ -439,7 +439,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  // ---------- 业务方法（原样保留） ----------
+  // ---------- 业务方法 ----------
   Future<void> _addSubscription() async {
     final name = _nameController.text.trim();
     final url = _urlController.text.trim();
