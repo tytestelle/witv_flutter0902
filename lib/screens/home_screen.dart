@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:coocaa_flutter_focus/coocaa_flutter_focus.dart'; // 新增
+import 'package:coocaa_flutter_focus/coocaa_flutter_focus.dart';
 
 import '../services/settings_service.dart';
 import '../services/config_service.dart';
@@ -29,7 +29,6 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  // ---------- 原有业务状态 ----------
   List<Channel> channels = [];
   List<String> groups = [];
   Channel? currentChannel;
@@ -76,12 +75,6 @@ class _HomeScreenState extends State<HomeScreen> {
   Key? _playerKey;
   double currentSpeed = 0;
 
-  // ---------- 移除旧的焦点管理 ----------
-  // final FocusNode _focusNode = FocusNode();
-  // int _selectedIndex = -1;
-  // 改为使用 coocaa_flutter_focus
-
-  // 数字键缓冲（保留）
   String _digitBuffer = '';
   Timer? _digitTimer;
 
@@ -352,7 +345,6 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       currentGroup = groupName;
       channels = groupChannels;
-      // 不再使用 _selectedIndex
     });
 
     _logoService.preloadAllLogos(channels);
@@ -361,7 +353,6 @@ class _HomeScreenState extends State<HomeScreen> {
       _updateEpgInfo();
       _showEpgInfoTemporarily();
     }
-    // 焦点自动移到频道列表第一个（由 FocusController 处理）
   }
 
   Future<void> _loadSubscriptionData(Subscription sub) async {
@@ -469,7 +460,6 @@ class _HomeScreenState extends State<HomeScreen> {
           } else if (currentChannel != null && channels.contains(currentChannel)) {
             // OK
           } else {
-            // 当前频道不在该分组中，选中第一个
             if (channels.isNotEmpty) {
               currentChannel = channels.first;
               _updateEpgInfo();
@@ -495,7 +485,6 @@ class _HomeScreenState extends State<HomeScreen> {
     _tryDownloadLogos();
   }
 
-  // ---------- 数字键处理（保留） ----------
   void _handleDigitKey(String digit) {
     _digitTimer?.cancel();
     _digitBuffer += digit;
@@ -517,13 +506,11 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
     if (found != null) {
-      // 请求焦点到该频道
       FocusController.instance.requestFocus('channel_${found.id}');
       _switchChannel(found);
     }
   }
 
-  // ---------- 构建UI ----------
   Widget _buildTag(String text) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -671,22 +658,13 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ---------- 焦点化的频道项 ----------
+  // ---------- 焦点化频道项 ----------
   Widget _buildFocusableChannelItem(Channel channel) {
     final isSelected = currentChannel?.name == channel.name;
-    // 获取当前节目用于副标题（可选）
     final currentEpg = EpgParser.getCurrentProgramSync(channel.name);
-    return FocusableWidget(
-      focusId: 'channel_${channel.id}',
+    return Focusable(
+      id: 'channel_${channel.id}',
       onTap: () => _switchChannel(channel),
-      focusDecoration: FocusDecoration(
-        boxDecoration: BoxDecoration(
-          color: Colors.blue.withOpacity(0.25),
-          borderRadius: BorderRadius.circular(4),
-          border: Border.all(color: Colors.blue, width: 2),
-        ),
-        transform: Matrix4.identity()..scale(1.02),
-      ),
       child: ListTile(
         dense: true,
         selected: isSelected,
@@ -719,12 +697,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 '暂无节目信息',
                 style: TextStyle(color: Colors.white38, fontSize: 11),
               ),
-        // onTap 由 FocusableWidget 触发
+        // onTap 由 Focusable 处理
       ),
     );
   }
 
-  // ---------- 焦点化的订阅列表 ----------
   Widget _buildFocusableSubscriptionList() {
     return Consumer<SettingsService>(
       builder: (context, settings, _) {
@@ -734,21 +711,15 @@ class _HomeScreenState extends State<HomeScreen> {
           return const Center(child: Text('无订阅源', style: TextStyle(color: Colors.white)));
         }
         return FocusableGroup(
-          focusId: 'subscription_list',
+          id: 'subscription_list',
           child: ListView.builder(
             itemCount: subs.length,
             itemBuilder: (_, index) {
               final sub = subs[index];
               final isSelected = currentSubName == sub.name;
-              return FocusableWidget(
-                focusId: 'sub_$index',
+              return Focusable(
+                id: 'sub_$index',
                 onTap: () => _loadSubscriptionData(sub),
-                focusDecoration: FocusDecoration(
-                  boxDecoration: BoxDecoration(
-                    color: Colors.blue.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                ),
                 child: ListTile(
                   title: Text(
                     sub.name,
@@ -766,41 +737,31 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ---------- 焦点化的分组列表 ----------
   Widget _buildFocusableGroupList() {
     return FocusableGroup(
-      focusId: 'group_list',
+      id: 'group_list',
       child: GroupList(
         groups: groups,
         selectedGroup: currentGroup,
         onSelect: _switchToGroup,
-        // GroupList 内部已使用 FocusableWidget，需要改造 GroupList 以支持焦点
-        // 但我们保留 GroupList 原有实现，但需确保其内部使用了 FocusableWidget
-        // 这里为了兼容，我们直接使用原有的 GroupList，但我们需要在 GroupList 内部改造
-        // 但我们可以在这里包裹一层 FocusableGroup 以支持左右移动进入
       ),
     );
   }
 
-  // ---------- 构建主布局 ----------
   @override
   Widget build(BuildContext context) {
     final screenHeight = MediaQuery.of(context).size.height;
     _scheduleButtonInitTop = (screenHeight - 80) / 2;
     _channelButtonInitTop = (screenHeight - 80) / 2;
 
-    // 不再需要手动设置 _selectedIndex
-
     return RawKeyboardListener(
       focusNode: FocusNode(),
       onKey: (event) {
         if (event is RawKeyDownEvent) {
           final label = event.logicalKey.keyLabel;
-          // 数字键 0-9
           if (label.length == 1 && int.tryParse(label) != null) {
             _handleDigitKey(label);
           }
-          // 方向键由 FocusController 自动处理
         }
       },
       child: WillPopScope(
@@ -880,7 +841,6 @@ class _HomeScreenState extends State<HomeScreen> {
                         _showRightMenu = false;
                         _showEpgInfo = false;
                         _epgInfoHideTimer?.cancel();
-                        // 焦点自动进入列表
                       }
                     });
                   },
@@ -888,7 +848,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
 
-              // ---------- 列表模式（三列） ----------
+              // ---------- 列表模式 ----------
               if (showChannelList && !isScheduleMode)
                 Positioned(
                   left: 0, top: 0, bottom: 0,
@@ -897,7 +857,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     color: Colors.transparent,
                     child: Row(
                       children: [
-                        // 订阅列表列
                         Expanded(
                           flex: (subWeight * 100).toInt(),
                           child: _buildFocusableSubscriptionList(),
@@ -919,7 +878,6 @@ class _HomeScreenState extends State<HomeScreen> {
                             }
                           });
                         }, isEditMode: isEditMode),
-                        // 分组列表列
                         Expanded(
                           flex: (groupWeight * 100).toInt(),
                           child: _buildFocusableGroupList(),
@@ -941,14 +899,13 @@ class _HomeScreenState extends State<HomeScreen> {
                             }
                           });
                         }, isEditMode: isEditMode),
-                        // 频道列表列（带节目单切换按钮）
                         Expanded(
                           flex: (channelWeight * 100).toInt(),
                           child: Stack(
                             children: [
                               Positioned.fill(
                                 child: FocusableGroup(
-                                  focusId: 'channel_list',
+                                  id: 'channel_list',
                                   child: ListView.builder(
                                     itemCount: channels.length,
                                     itemBuilder: (context, index) =>
@@ -989,7 +946,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
 
-              // ---------- 节目单模式（三列） ----------
+              // ---------- 节目单模式 ----------
               if (isScheduleMode)
                 Positioned(
                   left: 0, top: 0, bottom: 0,
@@ -1022,7 +979,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           Expanded(
                             flex: (scheduleChannelWeight * 100).toInt(),
                             child: FocusableGroup(
-                              focusId: 'schedule_channel_list',
+                              id: 'schedule_channel_list',
                               child: ListView.builder(
                                 itemCount: channels.length,
                                 itemBuilder: (context, index) =>
@@ -1050,7 +1007,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           Expanded(
                             flex: (scheduleWeight * 100).toInt(),
                             child: FocusableGroup(
-                              focusId: 'schedule_view',
+                              id: 'schedule_view',
                               child: ScheduleView(
                                 channels: channels,
                                 selectedChannel: currentChannel,
@@ -1113,7 +1070,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   top: 0, right: 0, bottom: 0,
                   width: MediaQuery.of(context).size.width * 0.12,
                   child: FocusableGroup(
-                    focusId: 'right_menu',
+                    id: 'right_menu',
                     child: Container(
                       color: Colors.transparent,
                       child: Column(
@@ -1195,26 +1152,18 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // 焦点化的菜单项
   Widget _buildFocusableMenuItem(IconData icon, String label, VoidCallback onTap) {
-    return FocusableWidget(
-      focusId: 'menu_$label',
+    return Focusable(
+      id: 'menu_$label',
       onTap: onTap,
-      focusDecoration: FocusDecoration(
-        boxDecoration: BoxDecoration(
-          color: Colors.blue.withOpacity(0.2),
-          borderRadius: BorderRadius.circular(4),
-        ),
-      ),
       child: ListTile(
         leading: Icon(icon, color: Colors.white),
         title: Text(label, style: const TextStyle(color: Colors.white)),
-        onTap: onTap,
+        // onTap 由 Focusable 处理
       ),
     );
   }
 
-  // ---------- 以下方法为占位（保留原有） ----------
   void _showAddSubscriptionDialog() {}
   void _showAddEpgDialog() {
     Navigator.push(
