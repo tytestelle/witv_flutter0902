@@ -1,7 +1,5 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:coocaa_flutter_focus/coocaa_flutter_focus.dart';
-
 import '../models/channel.dart';
 import '../models/epg_program.dart';
 import '../services/epg_parser.dart';
@@ -144,55 +142,51 @@ class _ScheduleViewState extends State<ScheduleView> {
 
     return Column(
       children: [
-        // 日期横排选择器
+        // ---------- 顶部日期横排选择器 ----------
         if (_availableDates.isNotEmpty)
           Container(
             height: 44,
             color: Colors.black.withOpacity(0.3),
-            child: FocusableGroup(
-              id: 'schedule_date_row',
-              child: ListView.builder(
-                scrollDirection: Axis.horizontal,
-                itemCount: _availableDates.length,
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                itemBuilder: (context, index) {
-                  final date = _availableDates[index];
-                  final isSelected = _selectedDate == date;
-                  final isToday = date == EpgParser.beijingDate(EpgParser.beijingNow);
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              itemCount: _availableDates.length,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              itemBuilder: (context, index) {
+                final date = _availableDates[index];
+                final isSelected = _selectedDate == date;
+                final isToday = date == EpgParser.beijingDate(EpgParser.beijingNow);
 
-                  return Focusable(
-                    id: 'date_${date.millisecondsSinceEpoch}',
-                    onTap: () {
-                      setState(() {
-                        _selectedDate = date;
-                      });
-                      _loadPrograms();
-                    },
-                    child: Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: isSelected ? Colors.yellow : Colors.white.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Center(
-                        child: Text(
-                          isToday ? '今天' : '${date.month}/${date.day}',
-                          style: TextStyle(
-                            color: isSelected ? Colors.black : Colors.white,
-                            fontSize: 13,
-                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                          ),
+                return GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      _selectedDate = date;
+                    });
+                    _loadPrograms();
+                  },
+                  child: Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: isSelected ? Colors.yellow : Colors.white.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Center(
+                      child: Text(
+                        isToday ? '今天' : '${date.month}/${date.day}',
+                        style: TextStyle(
+                          color: isSelected ? Colors.black : Colors.white,
+                          fontSize: 13,
+                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                         ),
                       ),
                     ),
-                  );
-                },
-              ),
+                  ),
+                );
+              },
             ),
           ),
 
-        // 频道标题
+        // ---------- 频道标题 ----------
         if (_selectedChannel != null)
           Container(
             padding: const EdgeInsets.all(12),
@@ -222,84 +216,79 @@ class _ScheduleViewState extends State<ScheduleView> {
             ),
           ),
 
-        // 节目列表
+        // ---------- 节目列表 ----------
         Expanded(
           child: _programs.isEmpty
               ? const Center(
                   child: Text('暂无节目信息', style: TextStyle(color: Colors.white70)),
                 )
-              : FocusableGroup(
-                  id: 'program_list',
-                  child: ListView.builder(
-                    itemCount: _programs.length,
-                    itemBuilder: (context, index) {
-                      final program = _programs[index];
-                      final now = EpgParser.beijingNow;
-                      final isCurrent = program.start.isBefore(now) && program.stop.isAfter(now);
-                      final isPast = program.stop.isBefore(now);
+              : ListView.builder(
+                  itemCount: _programs.length,
+                  itemBuilder: (context, index) {
+                    final program = _programs[index];
+                    final now = EpgParser.beijingNow;
+                    final isCurrent = program.start.isBefore(now) && program.stop.isAfter(now);
+                    final isPast = program.stop.isBefore(now);
 
-                      return Focusable(
-                        id: 'program_${program.start.millisecondsSinceEpoch}',
-                        onTap: () {
-                          if (_selectedChannel != null) {
-                            widget.onSelectChannel(_selectedChannel!);
-                          }
-                        },
-                        child: Container(
-                          color: isCurrent ? Colors.yellow.withOpacity(0.15) : Colors.transparent,
-                          child: ListTile(
-                            dense: true,
-                            leading: Text(
-                              EpgParser.formatBeijingTime(program.start),
-                              style: TextStyle(
-                                color: isCurrent ? Colors.yellow : (isPast ? Colors.white38 : Colors.white70),
-                                fontSize: 13,
-                                fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
-                              ),
+                    return GestureDetector(
+                      onTap: () {
+                        if (_selectedChannel != null) {
+                          widget.onSelectChannel(_selectedChannel!);
+                        }
+                      },
+                      child: Container(
+                        color: isCurrent ? Colors.yellow.withOpacity(0.15) : Colors.transparent,
+                        child: ListTile(
+                          dense: true,
+                          leading: Text(
+                            EpgParser.formatBeijingTime(program.start),
+                            style: TextStyle(
+                              color: isCurrent ? Colors.yellow : (isPast ? Colors.white38 : Colors.white70),
+                              fontSize: 13,
+                              fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
                             ),
-                            title: Text(
-                              program.title,
-                              style: TextStyle(
-                                color: isCurrent ? Colors.yellow : (isPast ? Colors.white38 : Colors.white),
-                                fontSize: 14,
-                                fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
-                              ),
-                            ),
-                            subtitle: program.description.isNotEmpty
-                                ? Padding(
-                                    padding: const EdgeInsets.only(top: 2),
-                                    child: Text(
-                                      program.description,
-                                      style: TextStyle(
-                                        color: isCurrent ? Colors.yellow.withOpacity(0.7) : Colors.white54,
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                  )
-                                : null,
-                            trailing: isCurrent
-                                ? Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                    decoration: BoxDecoration(
-                                      color: Colors.yellow,
-                                      borderRadius: BorderRadius.circular(4),
-                                    ),
-                                    child: const Text(
-                                      '正在播放',
-                                      style: TextStyle(
-                                        color: Colors.black,
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  )
-                                : null,
-                            // onTap 由 Focusable 处理
                           ),
+                          title: Text(
+                            program.title,
+                            style: TextStyle(
+                              color: isCurrent ? Colors.yellow : (isPast ? Colors.white38 : Colors.white),
+                              fontSize: 14,
+                              fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
+                            ),
+                          ),
+                          subtitle: program.description.isNotEmpty
+                              ? Padding(
+                                  padding: const EdgeInsets.only(top: 2),
+                                  child: Text(
+                                    program.description,
+                                    style: TextStyle(
+                                      color: isCurrent ? Colors.yellow.withOpacity(0.7) : Colors.white54,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                )
+                              : null,
+                          trailing: isCurrent
+                              ? Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: Colors.yellow,
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: const Text(
+                                    '正在播放',
+                                    style: TextStyle(
+                                      color: Colors.black,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                )
+                              : null,
                         ),
-                      );
-                    },
-                  ),
+                      ),
+                    );
+                  },
                 ),
         ),
       ],
