@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:coocaa_flutter_focus/coocaa_flutter_focus.dart'; // 新增
+
 import '../services/settings_service.dart';
 import '../services/config_service.dart';
 import '../services/playlist_parser.dart';
@@ -27,6 +29,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  // ---------- 原有业务状态 ----------
   List<Channel> channels = [];
   List<String> groups = [];
   Channel? currentChannel;
@@ -73,8 +76,12 @@ class _HomeScreenState extends State<HomeScreen> {
   Key? _playerKey;
   double currentSpeed = 0;
 
-  final FocusNode _focusNode = FocusNode();
-  int _selectedIndex = -1;
+  // ---------- 移除旧的焦点管理 ----------
+  // final FocusNode _focusNode = FocusNode();
+  // int _selectedIndex = -1;
+  // 改为使用 coocaa_flutter_focus
+
+  // 数字键缓冲（保留）
   String _digitBuffer = '';
   Timer? _digitTimer;
 
@@ -97,7 +104,6 @@ class _HomeScreenState extends State<HomeScreen> {
       if (!mounted) return;
       _updateEpgInfo();
       if (isScheduleMode) setState(() {});
-      // EPG加载/更新完成后，触发台标下载
       _tryDownloadLogos();
     };
     EpgParser.epgUpdateCounter.addListener(_epgListener!);
@@ -108,16 +114,13 @@ class _HomeScreenState extends State<HomeScreen> {
     await _initLayoutConfigFile();
     await _loadLayoutConfig();
 
-    // 如果没有配置台标来源，弹出设置对话框（阻塞等待用户选择）
     final hasLogoSource = await _logoService.hasConfiguredSource();
     if (!hasLogoSource && mounted) {
       LogService.write('Logo: 首次使用，引导用户设置台标来源');
       await LogoSourceSettingDialog.show(context, isFirstTime: true);
     }
 
-    // 用户设置完来源后，触发台标下载（此时订阅源可能已在 didChangeDependencies 中加载）
     _tryDownloadLogos();
-
     _initEpgScheduler();
     _startEpgInfoTimer();
     _loadEpgInBackground();
@@ -125,7 +128,6 @@ class _HomeScreenState extends State<HomeScreen> {
     if (mounted) setState(() => isLoading = false);
   }
 
-  /// 尝试下载台标：有频道数据且配置了来源时才执行
   void _tryDownloadLogos() {
     if (channels.isEmpty) return;
     _logoService.hasConfiguredSource().then((hasSource) {
@@ -236,7 +238,6 @@ class _HomeScreenState extends State<HomeScreen> {
     _epgInfoTimer?.cancel();
     _retryTimer?.cancel();
     _digitTimer?.cancel();
-    _focusNode.dispose();
     _saveLayoutConfig();
     super.dispose();
   }
@@ -333,7 +334,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
     setState(() {
       currentChannel = ch;
-      _selectedIndex = channels.indexOf(ch);
       _updateEpgInfo();
     });
 
@@ -352,20 +352,16 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       currentGroup = groupName;
       channels = groupChannels;
-      if (currentChannel != null && channels.contains(currentChannel)) {
-        _selectedIndex = channels.indexOf(currentChannel!);
-      } else {
-        _selectedIndex = -1;
-      }
+      // 不再使用 _selectedIndex
     });
 
     _logoService.preloadAllLogos(channels);
-    // 切换分组后，下载新分组中尚未缓存的台标
     _tryDownloadLogos();
     if (currentChannel != null) {
       _updateEpgInfo();
       _showEpgInfoTemporarily();
     }
+    // 焦点自动移到频道列表第一个（由 FocusController 处理）
   }
 
   Future<void> _loadSubscriptionData(Subscription sub) async {
@@ -462,21 +458,22 @@ class _HomeScreenState extends State<HomeScreen> {
               }
               if (found != null) {
                 currentChannel = found;
-                _selectedIndex = channels.indexOf(found);
               } else {
                 currentChannel = channels.first;
-                _selectedIndex = 0;
               }
             } else {
               currentChannel = channels.first;
-              _selectedIndex = 0;
             }
             _showEpgInfoTemporarily();
             _updateEpgInfo();
           } else if (currentChannel != null && channels.contains(currentChannel)) {
-            _selectedIndex = channels.indexOf(currentChannel!);
+            // OK
           } else {
-            _selectedIndex = -1;
+            // 当前频道不在该分组中，选中第一个
+            if (channels.isNotEmpty) {
+              currentChannel = channels.first;
+              _updateEpgInfo();
+            }
           }
         } else {
           for (final g in groups) {
@@ -495,62 +492,17 @@ class _HomeScreenState extends State<HomeScreen> {
     if (currentChannel != null) {
       _updateEpgInfo();
     }
-
-    // 频道列表加载完成后，尝试下载台标（来源可能已配置）
     _tryDownloadLogos();
   }
 
-  void _handleKeyEvent(RawKeyEvent event) {
-    if (event is! RawKeyDownEvent) return;
-    if (!showChannelList || isEditMode || isScheduleMode) return;
-
-    final key = event.logicalKey;
-    final digitKeys = [
-      LogicalKeyboardKey.digit0, LogicalKeyboardKey.digit1,
-      LogicalKeyboardKey.digit2, LogicalKeyboardKey.digit3,
-      LogicalKeyboardKey.digit4, LogicalKeyboardKey.digit5,
-      LogicalKeyboardKey.digit6, LogicalKeyboardKey.digit7,
-      LogicalKeyboardKey.digit8, LogicalKeyboardKey.digit9,
-    ];
-    if (digitKeys.contains(key)) {
-      _digitTimer?.cancel();
-      _digitBuffer += key.keyLabel;
-      _digitTimer = Timer(const Duration(milliseconds: 1500), () {
-        _jumpToChannelNumber(_digitBuffer);
-        _digitBuffer = '';
-      });
-      return;
-    }
-
-    if (_digitBuffer.isNotEmpty) {
-      _digitTimer?.cancel();
+  // ---------- 数字键处理（保留） ----------
+  void _handleDigitKey(String digit) {
+    _digitTimer?.cancel();
+    _digitBuffer += digit;
+    _digitTimer = Timer(const Duration(milliseconds: 1500), () {
       _jumpToChannelNumber(_digitBuffer);
       _digitBuffer = '';
-    }
-
-    if (channels.isEmpty) return;
-
-    if (key == LogicalKeyboardKey.arrowUp) {
-      setState(() => _selectedIndex = _selectedIndex > 0 ? _selectedIndex - 1 : channels.length - 1);
-    } else if (key == LogicalKeyboardKey.arrowDown) {
-      setState(() => _selectedIndex = _selectedIndex < channels.length - 1 ? _selectedIndex + 1 : 0);
-    } else if (key == LogicalKeyboardKey.arrowLeft) {
-      if (groups.isNotEmpty) {
-        final currentIdx = groups.indexOf(currentGroup!);
-        final prevIdx = (currentIdx - 1 + groups.length) % groups.length;
-        _switchToGroup(groups[prevIdx]);
-      }
-    } else if (key == LogicalKeyboardKey.arrowRight) {
-      if (groups.isNotEmpty) {
-        final currentIdx = groups.indexOf(currentGroup!);
-        final nextIdx = (currentIdx + 1) % groups.length;
-        _switchToGroup(groups[nextIdx]);
-      }
-    } else if (key == LogicalKeyboardKey.enter || key == LogicalKeyboardKey.select) {
-      if (_selectedIndex >= 0 && _selectedIndex < channels.length) {
-        _switchChannel(channels[_selectedIndex]);
-      }
-    }
+    });
   }
 
   void _jumpToChannelNumber(String digits) {
@@ -565,10 +517,13 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
     if (found != null) {
+      // 请求焦点到该频道
+      FocusController.instance.requestFocus('channel_${found.id}');
       _switchChannel(found);
     }
   }
 
+  // ---------- 构建UI ----------
   Widget _buildTag(String text) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -716,62 +671,138 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildChannelItem(Channel channel, int index) {
-    final currentEpg = EpgParser.getCurrentProgramSync(channel.name);
+  // ---------- 焦点化的频道项 ----------
+  Widget _buildFocusableChannelItem(Channel channel) {
     final isSelected = currentChannel?.name == channel.name;
-
-    return ListTile(
-      dense: true,
-      selected: isSelected,
-      selectedTileColor: Colors.white.withOpacity(0.1),
-      leading: ChannelLogo(
-        channelName: channel.name,
-        width: 36,
-        height: 24,
-        fit: BoxFit.contain,
-      ),
-      title: Text(
-        channel.name,
-        style: TextStyle(
-          color: isSelected ? Colors.yellow : Colors.white,
-          fontSize: 14,
-          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-        ),
-      ),
-      subtitle: currentEpg != null
-          ? Text(
-              '${EpgParser.formatBeijingTime(currentEpg.start)}-${EpgParser.formatBeijingTime(currentEpg.stop)} ${currentEpg.title}',
-              style: TextStyle(
-                color: isSelected ? Colors.yellow.withOpacity(0.8) : Colors.white70,
-                fontSize: 11,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            )
-          : Text(
-              '暂无节目信息',
-              style: TextStyle(color: Colors.white38, fontSize: 11),
-            ),
+    // 获取当前节目用于副标题（可选）
+    final currentEpg = EpgParser.getCurrentProgramSync(channel.name);
+    return FocusableWidget(
+      focusId: 'channel_${channel.id}',
       onTap: () => _switchChannel(channel),
+      focusDecoration: FocusDecoration(
+        boxDecoration: BoxDecoration(
+          color: Colors.blue.withOpacity(0.25),
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: Colors.blue, width: 2),
+        ),
+        transform: Matrix4.identity()..scale(1.02),
+      ),
+      child: ListTile(
+        dense: true,
+        selected: isSelected,
+        selectedTileColor: Colors.white.withOpacity(0.1),
+        leading: ChannelLogo(
+          channelName: channel.name,
+          width: 36,
+          height: 24,
+          fit: BoxFit.contain,
+        ),
+        title: Text(
+          channel.name,
+          style: TextStyle(
+            color: isSelected ? Colors.yellow : Colors.white,
+            fontSize: 14,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+          ),
+        ),
+        subtitle: currentEpg != null
+            ? Text(
+                '${EpgParser.formatBeijingTime(currentEpg.start)}-${EpgParser.formatBeijingTime(currentEpg.stop)} ${currentEpg.title}',
+                style: TextStyle(
+                  color: isSelected ? Colors.yellow.withOpacity(0.8) : Colors.white70,
+                  fontSize: 11,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              )
+            : Text(
+                '暂无节目信息',
+                style: TextStyle(color: Colors.white38, fontSize: 11),
+              ),
+        // onTap 由 FocusableWidget 触发
+      ),
     );
   }
 
+  // ---------- 焦点化的订阅列表 ----------
+  Widget _buildFocusableSubscriptionList() {
+    return Consumer<SettingsService>(
+      builder: (context, settings, _) {
+        final subs = settings.subscriptions;
+        _hasSubscriptions = subs.isNotEmpty;
+        if (!_hasSubscriptions) {
+          return const Center(child: Text('无订阅源', style: TextStyle(color: Colors.white)));
+        }
+        return FocusableGroup(
+          focusId: 'subscription_list',
+          child: ListView.builder(
+            itemCount: subs.length,
+            itemBuilder: (_, index) {
+              final sub = subs[index];
+              final isSelected = currentSubName == sub.name;
+              return FocusableWidget(
+                focusId: 'sub_$index',
+                onTap: () => _loadSubscriptionData(sub),
+                focusDecoration: FocusDecoration(
+                  boxDecoration: BoxDecoration(
+                    color: Colors.blue.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+                child: ListTile(
+                  title: Text(
+                    sub.name,
+                    style: TextStyle(
+                      color: isSelected ? Colors.yellow : Colors.white,
+                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+
+  // ---------- 焦点化的分组列表 ----------
+  Widget _buildFocusableGroupList() {
+    return FocusableGroup(
+      focusId: 'group_list',
+      child: GroupList(
+        groups: groups,
+        selectedGroup: currentGroup,
+        onSelect: _switchToGroup,
+        // GroupList 内部已使用 FocusableWidget，需要改造 GroupList 以支持焦点
+        // 但我们保留 GroupList 原有实现，但需确保其内部使用了 FocusableWidget
+        // 这里为了兼容，我们直接使用原有的 GroupList，但我们需要在 GroupList 内部改造
+        // 但我们可以在这里包裹一层 FocusableGroup 以支持左右移动进入
+      ),
+    );
+  }
+
+  // ---------- 构建主布局 ----------
   @override
   Widget build(BuildContext context) {
     final screenHeight = MediaQuery.of(context).size.height;
     _scheduleButtonInitTop = (screenHeight - 80) / 2;
     _channelButtonInitTop = (screenHeight - 80) / 2;
 
-    if (currentChannel != null && channels.isNotEmpty) {
-      final idx = channels.indexOf(currentChannel!);
-      if (idx != _selectedIndex && idx >= 0) {
-        _selectedIndex = idx;
-      }
-    }
+    // 不再需要手动设置 _selectedIndex
 
     return RawKeyboardListener(
-      focusNode: _focusNode,
-      onKey: _handleKeyEvent,
+      focusNode: FocusNode(),
+      onKey: (event) {
+        if (event is RawKeyDownEvent) {
+          final label = event.logicalKey.keyLabel;
+          // 数字键 0-9
+          if (label.length == 1 && int.tryParse(label) != null) {
+            _handleDigitKey(label);
+          }
+          // 方向键由 FocusController 自动处理
+        }
+      },
       child: WillPopScope(
         onWillPop: () async {
           if (_showEpgInfo) {
@@ -808,6 +839,7 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Scaffold(
           body: Stack(
             children: [
+              // 播放器
               if (currentChannel != null && currentChannel!.url.isNotEmpty)
                 Positioned.fill(
                   child: IjkPlayerWidget(
@@ -831,6 +863,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
 
+              // 左侧边缘触发频道列表
               Positioned(
                 left: 0, top: 0, bottom: 0, width: 40,
                 child: GestureDetector(
@@ -847,7 +880,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         _showRightMenu = false;
                         _showEpgInfo = false;
                         _epgInfoHideTimer?.cancel();
-                        _focusNode.requestFocus();
+                        // 焦点自动进入列表
                       }
                     });
                   },
@@ -855,6 +888,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
 
+              // ---------- 列表模式（三列） ----------
               if (showChannelList && !isScheduleMode)
                 Positioned(
                   left: 0, top: 0, bottom: 0,
@@ -863,7 +897,11 @@ class _HomeScreenState extends State<HomeScreen> {
                     color: Colors.transparent,
                     child: Row(
                       children: [
-                        Expanded(flex: (subWeight * 100).toInt(), child: _buildSubscriptionList()),
+                        // 订阅列表列
+                        Expanded(
+                          flex: (subWeight * 100).toInt(),
+                          child: _buildFocusableSubscriptionList(),
+                        ),
                         _buildDragBar(onDrag: (delta) {
                           setState(() {
                             double newSub = subWeight + delta;
@@ -881,7 +919,11 @@ class _HomeScreenState extends State<HomeScreen> {
                             }
                           });
                         }, isEditMode: isEditMode),
-                        Expanded(flex: (groupWeight * 100).toInt(), child: _buildGroupList()),
+                        // 分组列表列
+                        Expanded(
+                          flex: (groupWeight * 100).toInt(),
+                          child: _buildFocusableGroupList(),
+                        ),
                         _buildDragBar(onDrag: (delta) {
                           setState(() {
                             double newGroup = groupWeight + delta;
@@ -899,15 +941,19 @@ class _HomeScreenState extends State<HomeScreen> {
                             }
                           });
                         }, isEditMode: isEditMode),
+                        // 频道列表列（带节目单切换按钮）
                         Expanded(
                           flex: (channelWeight * 100).toInt(),
                           child: Stack(
                             children: [
                               Positioned.fill(
-                                child: ListView.builder(
-                                  itemCount: channels.length,
-                                  itemBuilder: (context, index) =>
-                                      _buildChannelItem(channels[index], index),
+                                child: FocusableGroup(
+                                  focusId: 'channel_list',
+                                  child: ListView.builder(
+                                    itemCount: channels.length,
+                                    itemBuilder: (context, index) =>
+                                        _buildFocusableChannelItem(channels[index]),
+                                  ),
                                 ),
                               ),
                               Positioned(
@@ -943,6 +989,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
 
+              // ---------- 节目单模式（三列） ----------
               if (isScheduleMode)
                 Positioned(
                   left: 0, top: 0, bottom: 0,
@@ -951,7 +998,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     children: [
                       Row(
                         children: [
-                          Expanded(flex: (scheduleGroupWeight * 100).toInt(), child: _buildGroupList()),
+                          Expanded(
+                            flex: (scheduleGroupWeight * 100).toInt(),
+                            child: _buildFocusableGroupList(),
+                          ),
                           _buildDragBar(onDrag: (delta) {
                             setState(() {
                               double newGroup = scheduleGroupWeight + delta;
@@ -971,10 +1021,13 @@ class _HomeScreenState extends State<HomeScreen> {
                           }, isEditMode: isEditMode),
                           Expanded(
                             flex: (scheduleChannelWeight * 100).toInt(),
-                            child: ListView.builder(
-                              itemCount: channels.length,
-                              itemBuilder: (context, index) =>
-                                  _buildChannelItem(channels[index], index),
+                            child: FocusableGroup(
+                              focusId: 'schedule_channel_list',
+                              child: ListView.builder(
+                                itemCount: channels.length,
+                                itemBuilder: (context, index) =>
+                                    _buildFocusableChannelItem(channels[index]),
+                              ),
                             ),
                           ),
                           _buildDragBar(onDrag: (delta) {
@@ -996,20 +1049,23 @@ class _HomeScreenState extends State<HomeScreen> {
                           }, isEditMode: isEditMode),
                           Expanded(
                             flex: (scheduleWeight * 100).toInt(),
-                            child: ScheduleView(
-                              channels: channels,
-                              selectedChannel: currentChannel,
-                              epgMap: const {},
-                              onSelectChannel: _switchChannel,
-                              leftWeight: 0.3,
-                              rightWeight: 0.7,
-                              onLeftWeightChanged: (_) {},
-                              isEditMode: isEditMode,
-                              showLeft: false,
-                              logoService: _logoService,
-                              getChannelPrograms: _getChannelPrograms,
-                              formatTime: _formatTime,
-                              beijingNow: _beijingNow,
+                            child: FocusableGroup(
+                              focusId: 'schedule_view',
+                              child: ScheduleView(
+                                channels: channels,
+                                selectedChannel: currentChannel,
+                                epgMap: const {},
+                                onSelectChannel: _switchChannel,
+                                leftWeight: 0.3,
+                                rightWeight: 0.7,
+                                onLeftWeightChanged: (_) {},
+                                isEditMode: isEditMode,
+                                showLeft: false,
+                                logoService: _logoService,
+                                getChannelPrograms: _getChannelPrograms,
+                                formatTime: _formatTime,
+                                beijingNow: _beijingNow,
+                              ),
                             ),
                           ),
                         ],
@@ -1043,6 +1099,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
 
+              // EPG信息栏
               Positioned(
                 left: 0,
                 right: 0,
@@ -1050,44 +1107,49 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: _buildEpgInfoBar(),
               ),
 
+              // 右侧菜单
               if (_showRightMenu)
                 Positioned(
                   top: 0, right: 0, bottom: 0,
                   width: MediaQuery.of(context).size.width * 0.12,
-                  child: Container(
-                    color: Colors.transparent,
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        _buildMenuItem(Icons.settings, '设置', () {
-                          Navigator.push(context, MaterialPageRoute(builder: (_) => SettingsScreen()))
-                              .then((_) => setState(() {}));
-                          setState(() => _showRightMenu = false);
-                        }),
-                        _buildMenuItem(Icons.edit, '编辑', () {
-                          if (isEditMode) {
-                            _exitEditMode();
-                          } else {
-                            setState(() => isEditMode = true);
-                          }
-                          setState(() => _showRightMenu = false);
-                        }),
-                        _buildMenuItem(Icons.list, '列表订阅', () {
-                          _showAddSubscriptionDialog();
-                          setState(() => _showRightMenu = false);
-                        }),
-                        _buildMenuItem(Icons.tv, 'EPG订阅', () {
-                          _showAddEpgDialog();
-                          setState(() => _showRightMenu = false);
-                        }),
-                        _buildMenuItem(Icons.close, '关闭', () {
-                          setState(() => _showRightMenu = false);
-                        }),
-                      ],
+                  child: FocusableGroup(
+                    focusId: 'right_menu',
+                    child: Container(
+                      color: Colors.transparent,
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          _buildFocusableMenuItem(Icons.settings, '设置', () {
+                            Navigator.push(context, MaterialPageRoute(builder: (_) => SettingsScreen()))
+                                .then((_) => setState(() {}));
+                            setState(() => _showRightMenu = false);
+                          }),
+                          _buildFocusableMenuItem(Icons.edit, '编辑', () {
+                            if (isEditMode) {
+                              _exitEditMode();
+                            } else {
+                              setState(() => isEditMode = true);
+                            }
+                            setState(() => _showRightMenu = false);
+                          }),
+                          _buildFocusableMenuItem(Icons.list, '列表订阅', () {
+                            _showAddSubscriptionDialog();
+                            setState(() => _showRightMenu = false);
+                          }),
+                          _buildFocusableMenuItem(Icons.tv, 'EPG订阅', () {
+                            _showAddEpgDialog();
+                            setState(() => _showRightMenu = false);
+                          }),
+                          _buildFocusableMenuItem(Icons.close, '关闭', () {
+                            setState(() => _showRightMenu = false);
+                          }),
+                        ],
+                      ),
                     ),
                   ),
                 ),
 
+              // 右上角快捷按钮
               Positioned(
                 top: 0, right: 0,
                 child: Row(
@@ -1133,50 +1195,27 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildMenuItem(IconData icon, String label, VoidCallback onTap) {
-    return ListTile(
-      leading: Icon(icon, color: Colors.white),
-      title: Text(label, style: const TextStyle(color: Colors.white)),
+  // 焦点化的菜单项
+  Widget _buildFocusableMenuItem(IconData icon, String label, VoidCallback onTap) {
+    return FocusableWidget(
+      focusId: 'menu_$label',
       onTap: onTap,
+      focusDecoration: FocusDecoration(
+        boxDecoration: BoxDecoration(
+          color: Colors.blue.withOpacity(0.2),
+          borderRadius: BorderRadius.circular(4),
+        ),
+      ),
+      child: ListTile(
+        leading: Icon(icon, color: Colors.white),
+        title: Text(label, style: const TextStyle(color: Colors.white)),
+        onTap: onTap,
+      ),
     );
   }
 
-  Widget _buildSubscriptionList() {
-    return Consumer<SettingsService>(
-      builder: (context, settings, _) {
-        final subs = settings.subscriptions;
-        _hasSubscriptions = subs.isNotEmpty;
-        if (!_hasSubscriptions) {
-          return const Center(child: Text('无订阅源', style: TextStyle(color: Colors.white)));
-        }
-        return ListView.builder(
-          itemCount: subs.length,
-          itemBuilder: (_, index) {
-            final sub = subs[index];
-            final isSelected = currentSubName == sub.name;
-            return ListTile(
-              title: Text(sub.name, style: TextStyle(
-                color: isSelected ? Colors.yellow : Colors.white,
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-              )),
-              onTap: () => _loadSubscriptionData(sub),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Widget _buildGroupList() {
-    return GroupList(
-      groups: groups,
-      selectedGroup: currentGroup,
-      onSelect: _switchToGroup,
-    );
-  }
-
+  // ---------- 以下方法为占位（保留原有） ----------
   void _showAddSubscriptionDialog() {}
-
   void _showAddEpgDialog() {
     Navigator.push(
       context,
