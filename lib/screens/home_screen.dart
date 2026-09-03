@@ -21,12 +21,16 @@ import '../widgets/channel_list.dart';
 import '../widgets/logo_source_dialog.dart';
 import 'settings_screen.dart';
 
+// 列枚举，方便管理
+enum FocusColumn { subscription, group, channel }
+
 class HomeScreen extends StatefulWidget {
   @override
   _HomeScreenState createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  // ---------- 原有业务状态 ----------
   List<Channel> channels = [];
   List<String> groups = [];
   Channel? currentChannel;
@@ -74,13 +78,98 @@ class _HomeScreenState extends State<HomeScreen> {
   double currentSpeed = 0;
 
   final FocusNode _focusNode = FocusNode();
-  int _selectedIndex = -1;
   String _digitBuffer = '';
   Timer? _digitTimer;
 
   VoidCallback? _epgListener;
   bool _autoLoaded = false;
 
+  // ---------- 自定义焦点状态 ----------
+  FocusColumn _focusColumn = FocusColumn.channel; // 当前焦点所在列
+  int _focusRow = 0; // 当前焦点所在行（从0开始）
+
+  // 获取各列的最大行数
+  int get _subscriptionCount => Provider.of<SettingsService>(context, listen: false).subscriptions.length;
+  int get _groupCount => groups.length;
+  int get _channelCount => channels.length;
+
+  // 根据当前焦点列获取对应的列表长度
+  int get _currentColumnCount {
+    switch (_focusColumn) {
+      case FocusColumn.subscription:
+        return _subscriptionCount;
+      case FocusColumn.group:
+        return _groupCount;
+      case FocusColumn.channel:
+        return _channelCount;
+    }
+  }
+
+  // 确保 _focusRow 不超出当前列的范围
+  void _clampFocusRow() {
+    final maxRow = _currentColumnCount - 1;
+    if (_focusRow > maxRow) _focusRow = maxRow.clamp(0, maxRow);
+    if (_focusRow < 0) _focusRow = 0;
+  }
+
+  // 切换列时保持行尽量相同
+  void _moveFocusColumn(FocusColumn newCol) {
+    final oldCol = _focusColumn;
+    if (oldCol == newCol) return;
+    // 保存当前行
+    final currentRow = _focusRow;
+    // 切换到新列
+    _focusColumn = newCol;
+    // 尝试保持行不变，如果超出则调整
+    final maxRow = _currentColumnCount - 1;
+    if (currentRow <= maxRow) {
+      _focusRow = currentRow;
+    } else {
+      _focusRow = maxRow.clamp(0, maxRow);
+    }
+    _clampFocusRow();
+    setState(() {});
+  }
+
+  // 移动行
+  void _moveFocusRow(int delta) {
+    final newRow = _focusRow + delta;
+    final maxRow = _currentColumnCount - 1;
+    if (newRow < 0 || newRow > maxRow) return;
+    _focusRow = newRow;
+    setState(() {});
+  }
+
+  // 确认操作：根据当前列执行相应动作
+  void _executeConfirm() {
+    switch (_focusColumn) {
+      case FocusColumn.subscription:
+        // 获取当前选中的订阅
+        final settings = Provider.of<SettingsService>(context, listen: false);
+        final subs = settings.subscriptions;
+        if (_focusRow < subs.length) {
+          final sub = subs[_focusRow];
+          _loadSubscriptionData(sub);
+        }
+        break;
+      case FocusColumn.group:
+        if (_focusRow < groups.length) {
+          _switchToGroup(groups[_focusRow]);
+        }
+        break;
+      case FocusColumn.channel:
+        if (_focusRow < channels.length) {
+          _switchChannel(channels[_focusRow]);
+        }
+        break;
+    }
+  }
+
+  // 修复：原有方法中需要调用 _clampFocusRow 或更新焦点
+  // 在 _switchToGroup 和 _applyGroupMap 中需要调整焦点状态，确保焦点行有效
+  // 我们会在这些方法中手动设置焦点
+
+  // ---------- 原有业务方法（略作调整） ----------
   DateTime get _beijingNow => EpgParser.beijingNow;
   String _formatTime(DateTime time) => EpgParser.formatBeijingTime(time);
   String _getDate(DateTime time) {
@@ -321,7 +410,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _retryChannel = null;
   }
 
-  // 切换频道：更新 currentChannel 并同步 _selectedIndex
+  // 切换频道：更新 currentChannel，并调整焦点到频道列对应行
   void _switchChannel(Channel ch) {
     _cancelRetry();
     _digitBuffer = '';
@@ -329,15 +418,20 @@ class _HomeScreenState extends State<HomeScreen> {
 
     setState(() {
       currentChannel = ch;
-      _selectedIndex = channels.indexOf(ch);
       _updateEpgInfo();
+      // 焦点移到频道列表的对应行
+      final idx = channels.indexOf(ch);
+      if (idx >= 0) {
+        _focusColumn = FocusColumn.channel;
+        _focusRow = idx;
+      }
     });
 
     _showEpgInfoTemporarily();
     Provider.of<SettingsService>(context, listen: false).saveLastChannel(ch.name);
   }
 
-  // 切换分组：更新 channels 列表，并调整 _selectedIndex
+  // 切换分组：更新 channels，调整焦点到分组列对应行，并将 currentChannel 设为分组中的第一个频道（但不自动播放）
   void _switchToGroup(String groupName) {
     if (_fullGroupMap == null || _fullGroupMap!.isEmpty) return;
     final groupChannels = _fullGroupMap![groupName];
@@ -349,27 +443,24 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       currentGroup = groupName;
       channels = groupChannels;
-      // 如果当前频道在新分组中，则选中它，否则选中第一个
-      if (currentChannel != null && channels.contains(currentChannel)) {
-        _selectedIndex = channels.indexOf(currentChannel!);
-      } else if (channels.isNotEmpty) {
-        // 如果当前频道不在新分组，自动选中第一个频道
+      // 设置焦点到分组列该行
+      final groupIdx = groups.indexOf(groupName);
+      if (groupIdx >= 0) {
+        _focusColumn = FocusColumn.group;
+        _focusRow = groupIdx;
+      }
+      // 自动选择第一个频道（但不播放），仅更新 currentChannel 用于显示 EPG
+      if (channels.isNotEmpty) {
         currentChannel = channels.first;
-        _selectedIndex = 0;
         _updateEpgInfo();
         _showEpgInfoTemporarily();
       } else {
         currentChannel = null;
-        _selectedIndex = -1;
       }
     });
 
     _logoService.preloadAllLogos(channels);
     _tryDownloadLogos();
-    if (currentChannel != null) {
-      _updateEpgInfo();
-      _showEpgInfoTemporarily();
-    }
   }
 
   Future<void> _loadSubscriptionData(Subscription sub) async {
@@ -466,28 +557,20 @@ class _HomeScreenState extends State<HomeScreen> {
               }
               if (found != null) {
                 currentChannel = found;
-                _selectedIndex = channels.indexOf(found);
               } else {
                 currentChannel = channels.first;
-                _selectedIndex = 0;
               }
             } else {
               currentChannel = channels.first;
-              _selectedIndex = 0;
             }
             _showEpgInfoTemporarily();
             _updateEpgInfo();
           } else if (currentChannel != null && channels.contains(currentChannel)) {
-            _selectedIndex = channels.indexOf(currentChannel!);
+            // OK
           } else {
-            // 当前频道不在该分组，选择第一个
             if (channels.isNotEmpty) {
               currentChannel = channels.first;
-              _selectedIndex = 0;
               _updateEpgInfo();
-            } else {
-              currentChannel = null;
-              _selectedIndex = -1;
             }
           }
         } else {
@@ -502,6 +585,15 @@ class _HomeScreenState extends State<HomeScreen> {
         }
       }
       currentSubName = subName;
+
+      // 重置焦点到第一个频道（列），但只影响焦点位置，不自动播放
+      if (channels.isNotEmpty) {
+        _focusColumn = FocusColumn.channel;
+        _focusRow = 0;
+      } else {
+        _focusColumn = FocusColumn.subscription;
+        _focusRow = 0;
+      }
     });
 
     if (currentChannel != null) {
@@ -510,7 +602,33 @@ class _HomeScreenState extends State<HomeScreen> {
     _tryDownloadLogos();
   }
 
-  // 遥控器按键处理（核心逻辑）
+  // 数字键处理（保持不变）
+  void _handleDigitKey(String digit) {
+    _digitTimer?.cancel();
+    _digitBuffer += digit;
+    _digitTimer = Timer(const Duration(milliseconds: 1500), () {
+      _jumpToChannelNumber(_digitBuffer);
+      _digitBuffer = '';
+    });
+  }
+
+  void _jumpToChannelNumber(String digits) {
+    if (digits.isEmpty) return;
+    final targetNumber = int.tryParse(digits);
+    if (targetNumber == null) return;
+    Channel? found;
+    for (final ch in channels) {
+      if (ch.number == targetNumber) {
+        found = ch;
+        break;
+      }
+    }
+    if (found != null) {
+      _switchChannel(found);
+    }
+  }
+
+  // 遥控器按键处理（核心：自由光标移动）
   void _handleKeyEvent(RawKeyEvent event) {
     if (event is! RawKeyDownEvent) return;
     if (!showChannelList || isEditMode || isScheduleMode) return;
@@ -539,58 +657,42 @@ class _HomeScreenState extends State<HomeScreen> {
       _digitBuffer = '';
     }
 
-    if (channels.isEmpty) return;
-
-    // 上下键：移动高亮，但不换台（边界停止，不循环）
+    // 方向键处理
     if (key == LogicalKeyboardKey.arrowUp) {
-      if (_selectedIndex > 0) {
-        setState(() => _selectedIndex--);
-      }
-      // 如果 _selectedIndex == -1，则设为0（如果有频道）
-      if (_selectedIndex == -1 && channels.isNotEmpty) {
-        setState(() => _selectedIndex = 0);
-      }
+      _moveFocusRow(-1);
     } else if (key == LogicalKeyboardKey.arrowDown) {
-      if (_selectedIndex < channels.length - 1) {
-        setState(() => _selectedIndex++);
-      } else if (_selectedIndex == -1 && channels.isNotEmpty) {
-        setState(() => _selectedIndex = 0);
-      }
+      _moveFocusRow(1);
     } else if (key == LogicalKeyboardKey.arrowLeft) {
-      if (groups.isNotEmpty) {
-        final currentIdx = groups.indexOf(currentGroup!);
-        final prevIdx = (currentIdx - 1 + groups.length) % groups.length;
-        _switchToGroup(groups[prevIdx]);
+      // 左移：订阅 <- 分组 <- 频道
+      switch (_focusColumn) {
+        case FocusColumn.channel:
+          _moveFocusColumn(FocusColumn.group);
+          break;
+        case FocusColumn.group:
+          _moveFocusColumn(FocusColumn.subscription);
+          break;
+        case FocusColumn.subscription:
+          // 在最左边，不做任何事（或循环到频道？根据需求，可以停在边界）
+          break;
       }
     } else if (key == LogicalKeyboardKey.arrowRight) {
-      if (groups.isNotEmpty) {
-        final currentIdx = groups.indexOf(currentGroup!);
-        final nextIdx = (currentIdx + 1) % groups.length;
-        _switchToGroup(groups[nextIdx]);
+      switch (_focusColumn) {
+        case FocusColumn.subscription:
+          _moveFocusColumn(FocusColumn.group);
+          break;
+        case FocusColumn.group:
+          _moveFocusColumn(FocusColumn.channel);
+          break;
+        case FocusColumn.channel:
+          // 在最右边，停在边界
+          break;
       }
     } else if (key == LogicalKeyboardKey.enter || key == LogicalKeyboardKey.select) {
-      if (_selectedIndex >= 0 && _selectedIndex < channels.length) {
-        _switchChannel(channels[_selectedIndex]);
-      }
+      _executeConfirm();
     }
   }
 
-  void _jumpToChannelNumber(String digits) {
-    if (digits.isEmpty) return;
-    final targetNumber = int.tryParse(digits);
-    if (targetNumber == null) return;
-    Channel? found;
-    for (final ch in channels) {
-      if (ch.number == targetNumber) {
-        found = ch;
-        break;
-      }
-    }
-    if (found != null) {
-      _switchChannel(found);
-    }
-  }
-
+  // ---------- UI 构建 ----------
   Widget _buildTag(String text) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -738,59 +840,158 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildChannelItem(Channel channel, int index) {
-    final currentEpg = EpgParser.getCurrentProgramSync(channel.name);
-    final isSelected = (currentChannel?.name == channel.name) || (index == _selectedIndex && currentChannel != null && currentChannel!.name == channel.name);
-
-    return ListTile(
-      dense: true,
-      selected: isSelected,
-      selectedTileColor: Colors.white.withOpacity(0.1),
-      leading: ChannelLogo(
-        channelName: channel.name,
-        width: 36,
-        height: 24,
-        fit: BoxFit.contain,
+  // ---------- 构建可聚焦的列表项 ----------
+  // 订阅项
+  Widget _buildSubscriptionItem(Subscription sub, int index) {
+    final isFocused = (_focusColumn == FocusColumn.subscription && _focusRow == index);
+    final isSelected = currentSubName == sub.name;
+    return Container(
+      decoration: BoxDecoration(
+        color: isFocused ? Colors.blue.withOpacity(0.3) : Colors.transparent,
+        border: isFocused ? Border.all(color: Colors.blue, width: 2) : null,
       ),
-      title: Text(
-        channel.name,
-        style: TextStyle(
-          color: isSelected ? Colors.yellow : Colors.white,
-          fontSize: 14,
-          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+      child: ListTile(
+        title: Text(
+          sub.name,
+          style: TextStyle(
+            color: isSelected ? Colors.yellow : Colors.white,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+          ),
         ),
+        onTap: () {
+          setState(() {
+            _focusColumn = FocusColumn.subscription;
+            _focusRow = index;
+          });
+          _loadSubscriptionData(sub);
+        },
       ),
-      subtitle: currentEpg != null
-          ? Text(
-              '${EpgParser.formatBeijingTime(currentEpg.start)}-${EpgParser.formatBeijingTime(currentEpg.stop)} ${currentEpg.title}',
-              style: TextStyle(
-                color: isSelected ? Colors.yellow.withOpacity(0.8) : Colors.white70,
-                fontSize: 11,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            )
-          : Text(
-              '暂无节目信息',
-              style: TextStyle(color: Colors.white38, fontSize: 11),
-            ),
-      onTap: () => _switchChannel(channel),
     );
   }
 
+  // 分组项
+  Widget _buildGroupItem(String group, int index) {
+    final isFocused = (_focusColumn == FocusColumn.group && _focusRow == index);
+    final isSelected = group == currentGroup;
+    return Container(
+      decoration: BoxDecoration(
+        color: isFocused ? Colors.blue.withOpacity(0.3) : Colors.transparent,
+        border: isFocused ? Border.all(color: Colors.blue, width: 2) : null,
+      ),
+      child: ListTile(
+        title: Text(
+          group,
+          style: TextStyle(
+            color: isSelected ? Colors.yellow : Colors.white70,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+            fontSize: 14,
+          ),
+        ),
+        onTap: () {
+          setState(() {
+            _focusColumn = FocusColumn.group;
+            _focusRow = index;
+          });
+          _switchToGroup(group);
+        },
+      ),
+    );
+  }
+
+  // 频道项
+  Widget _buildChannelItem(Channel channel, int index) {
+    final isFocused = (_focusColumn == FocusColumn.channel && _focusRow == index);
+    final isSelected = currentChannel?.name == channel.name;
+    final currentEpg = EpgParser.getCurrentProgramSync(channel.name);
+
+    return Container(
+      decoration: BoxDecoration(
+        color: isFocused ? Colors.blue.withOpacity(0.3) : Colors.transparent,
+        border: isFocused ? Border.all(color: Colors.blue, width: 2) : null,
+      ),
+      child: ListTile(
+        dense: true,
+        selected: isSelected,
+        selectedTileColor: Colors.white.withOpacity(0.1),
+        leading: ChannelLogo(
+          channelName: channel.name,
+          width: 36,
+          height: 24,
+          fit: BoxFit.contain,
+        ),
+        title: Text(
+          channel.name,
+          style: TextStyle(
+            color: isSelected ? Colors.yellow : Colors.white,
+            fontSize: 14,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+          ),
+        ),
+        subtitle: currentEpg != null
+            ? Text(
+                '${EpgParser.formatBeijingTime(currentEpg.start)}-${EpgParser.formatBeijingTime(currentEpg.stop)} ${currentEpg.title}',
+                style: TextStyle(
+                  color: isSelected ? Colors.yellow.withOpacity(0.8) : Colors.white70,
+                  fontSize: 11,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              )
+            : Text(
+                '暂无节目信息',
+                style: TextStyle(color: Colors.white38, fontSize: 11),
+              ),
+        onTap: () {
+          setState(() {
+            _focusColumn = FocusColumn.channel;
+            _focusRow = index;
+          });
+          _switchChannel(channel);
+        },
+      ),
+    );
+  }
+
+  // ---------- 构建列表 ----------
+  Widget _buildSubscriptionList() {
+    return Consumer<SettingsService>(
+      builder: (context, settings, _) {
+        final subs = settings.subscriptions;
+        _hasSubscriptions = subs.isNotEmpty;
+        if (!_hasSubscriptions) {
+          return const Center(child: Text('无订阅源', style: TextStyle(color: Colors.white)));
+        }
+        return ListView.builder(
+          itemCount: subs.length,
+          itemBuilder: (_, index) => _buildSubscriptionItem(subs[index], index),
+        );
+      },
+    );
+  }
+
+  Widget _buildGroupList() {
+    return ListView.builder(
+      itemCount: groups.length,
+      itemBuilder: (_, index) => _buildGroupItem(groups[index], index),
+    );
+  }
+
+  Widget _buildChannelListView() {
+    return ListView.builder(
+      itemCount: channels.length,
+      itemBuilder: (_, index) => _buildChannelItem(channels[index], index),
+    );
+  }
+
+  // ---------- 主构建 ----------
   @override
   Widget build(BuildContext context) {
     final screenHeight = MediaQuery.of(context).size.height;
     _scheduleButtonInitTop = (screenHeight - 80) / 2;
     _channelButtonInitTop = (screenHeight - 80) / 2;
 
-    // 同步 _selectedIndex 与 currentChannel（以防外部修改）
-    if (currentChannel != null && channels.isNotEmpty) {
-      final idx = channels.indexOf(currentChannel!);
-      if (idx != _selectedIndex && idx >= 0) {
-        _selectedIndex = idx;
-      }
-    }
+    // 确保焦点行有效（当列表变化时）
+    _clampFocusRow();
 
     return RawKeyboardListener(
       focusNode: _focusNode,
@@ -927,11 +1128,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           child: Stack(
                             children: [
                               Positioned.fill(
-                                child: ListView.builder(
-                                  itemCount: channels.length,
-                                  itemBuilder: (context, index) =>
-                                      _buildChannelItem(channels[index], index),
-                                ),
+                                child: _buildChannelListView(),
                               ),
                               Positioned(
                                 right: 20 - channelListButtonOffset.dx,
@@ -994,11 +1191,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           }, isEditMode: isEditMode),
                           Expanded(
                             flex: (scheduleChannelWeight * 100).toInt(),
-                            child: ListView.builder(
-                              itemCount: channels.length,
-                              itemBuilder: (context, index) =>
-                                  _buildChannelItem(channels[index], index),
-                            ),
+                            child: _buildChannelListView(),
                           ),
                           _buildDragBar(onDrag: (delta) {
                             setState(() {
@@ -1145,6 +1338,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // 拖拽条
   Widget _buildDragBar({required void Function(double) onDrag, required bool isEditMode}) {
     if (!isEditMode) return const SizedBox.shrink();
     return GestureDetector(
@@ -1161,40 +1355,6 @@ class _HomeScreenState extends State<HomeScreen> {
       leading: Icon(icon, color: Colors.white),
       title: Text(label, style: const TextStyle(color: Colors.white)),
       onTap: onTap,
-    );
-  }
-
-  Widget _buildSubscriptionList() {
-    return Consumer<SettingsService>(
-      builder: (context, settings, _) {
-        final subs = settings.subscriptions;
-        _hasSubscriptions = subs.isNotEmpty;
-        if (!_hasSubscriptions) {
-          return const Center(child: Text('无订阅源', style: TextStyle(color: Colors.white)));
-        }
-        return ListView.builder(
-          itemCount: subs.length,
-          itemBuilder: (_, index) {
-            final sub = subs[index];
-            final isSelected = currentSubName == sub.name;
-            return ListTile(
-              title: Text(sub.name, style: TextStyle(
-                color: isSelected ? Colors.yellow : Colors.white,
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-              )),
-              onTap: () => _loadSubscriptionData(sub),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Widget _buildGroupList() {
-    return GroupList(
-      groups: groups,
-      selectedGroup: currentGroup,
-      onSelect: _switchToGroup,
     );
   }
 
